@@ -2,7 +2,7 @@ import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL } from './config.js';
 import * as E from './engine.js';
 
-export const ui = { tab: 'quests', questFilter: 'open', editingGym: false };
+export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null };
 
 /* ---------- helpers ---------- */
 const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -324,6 +324,159 @@ function scheduleLabel(s) {
 }
 
 /* ============================================================
+   TAB — CALENDAR
+   ============================================================ */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'];
+
+function monthKey(k) { return k.slice(0, 7); }
+function shiftMonth(ym, n) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthGrid(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const days = new Date(y, m, 0).getDate();
+  const lead = first.getDay();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(`${ym}-${String(d).padStart(2, '0')}`);
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+
+function calendarTab() {
+  const st = g();
+  const today = tk();
+  const ym = ui.calMonth || monthKey(today);
+  const sel = ui.calDay || today;
+  const cells = monthGrid(ym);
+
+  // one pass over the month so we're not recomputing per cell
+  const info = {};
+  cells.filter(Boolean).forEach((k) => { info[k] = E.dayDetail(st, k); });
+
+  const cell = (k) => {
+    if (!k) return '<div class="cal-cell empty"></div>';
+    const d = info[k];
+    const n = Number(k.slice(8));
+    const cls = [
+      'cal-cell',
+      k === today ? 'today' : '',
+      k === sel ? 'sel' : '',
+      d.dayOff ? 'off' : '',
+      k < today ? 'past' : '',
+    ].filter(Boolean).join(' ');
+
+    const marks = [];
+    if (d.openQuests.length) {
+      const top = E.rankOf(d.openQuests[0], st.settings);
+      marks.push(`<i class="m rank-${top}" title="${d.openQuests.length} due"></i>`);
+    } else if (d.quests.length) {
+      marks.push('<i class="m done"></i>');
+    }
+    if (d.training?.exercises.length) marks.push(`<i class="m gym${d.trained ? ' done' : ''}"></i>`);
+    if (d.habits.length) {
+      const all = d.habitsDone >= d.habits.length && d.habits.length > 0;
+      marks.push(`<i class="m hab${all ? ' done' : ''}"></i>`);
+    }
+
+    return `<button class="${cls}" data-act="cal-day" data-k="${k}">
+      <span class="n">${n}</span>
+      <span class="marks">${marks.join('')}</span>
+    </button>`;
+  };
+
+  const d = info[sel] || E.dayDetail(st, sel);
+  const selDate = new Date(sel + 'T12:00:00');
+  const isToday = sel === today;
+
+  const questLine = (q) => {
+    const r = E.rankOf(q, st.settings);
+    return `<div class="row ${q.done ? 'done' : q.missed ? 'missed' : ''}">
+      ${q.done || q.missed ? '<span class="check" style="opacity:.4"></span>'
+        : `<button class="check" data-act="finish-quest" data-id="${h(q.id)}">\u2713</button>`}
+      <div class="body tappable" data-act="open-quest" data-id="${h(q.id)}">
+        <div class="t">${h(q.title)}</div>
+        <div class="s">${h(q.course || '')}${q.done ? ` \u00b7 +${q.paid || 0}g` : ''}</div>
+      </div>
+      <span class="rank ${r}">${r}</span>
+    </div>`;
+  };
+
+  // month totals
+  const monthDays = cells.filter(Boolean);
+  const cleared = monthDays.reduce((a, k) => a + (info[k]?.quests.filter((q) => q.done).length || 0), 0);
+  const sessions = monthDays.filter((k) => st.gymLog[k]?.done).length;
+  const offDays = monthDays.filter((k) => info[k]?.dayOff).length;
+
+  return `<div class="wrap">
+    <div class="window">
+      <div class="cal-head">
+        <button class="sm ghost" data-act="cal-prev">\u2039</button>
+        <div>
+          <h2 style="font-size:16px">${MONTHS[Number(ym.slice(5)) - 1]}</h2>
+          <span class="eyebrow">${ym.slice(0, 4)}</span>
+        </div>
+        <button class="sm ghost" data-act="cal-next">\u203a</button>
+        <button class="sm" style="margin-left:auto" data-act="cal-today">Today</button>
+      </div>
+
+      <div class="cal-dow">${DOW.map((x) => `<span>${x}</span>`).join('')}</div>
+      <div class="cal-grid">${cells.map(cell).join('')}</div>
+
+      <div class="cal-legend">
+        <span><i class="m rank-C"></i>quest due</span>
+        <span><i class="m gym"></i>training</span>
+        <span><i class="m hab"></i>habits</span>
+        <span><i class="m off"></i>day off</span>
+      </div>
+    </div>
+
+    <div class="window">
+      <div class="window-title">
+        <h2>${isToday ? 'Today' : selDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</h2>
+        <span class="count">${d.dayOff ? 'DAY OFF' : ''}</span>
+      </div>
+
+      ${d.dayOff ? '<div class="tiny" style="color:var(--gold);margin-bottom:12px">Nothing counts against you on this day.</div>' : ''}
+
+      <div class="eyebrow" style="margin-bottom:6px">Quests</div>
+      ${d.quests.length ? d.quests.map(questLine).join('')
+        : '<div class="tiny muted" style="padding:4px 0 12px">Nothing due.</div>'}
+
+      <div class="eyebrow" style="margin:16px 0 6px">Training</div>
+      ${!d.training ? '<div class="tiny muted">Before this cycle started.</div>'
+        : d.training.exercises.length === 0 ? '<div class="tiny muted">Rest day.</div>'
+        : `<div class="tiny ${d.trained ? '' : 'muted'}" style="margin-bottom:4px">
+             ${d.trained ? 'Cleared' : sel > today ? 'Planned' : 'Not cleared'} \u00b7 ${h(d.training.planName)} \u00b7 day ${d.training.day}
+           </div>
+           ${d.training.exercises.map((e) => `<div class="tiny" style="padding:3px 0;color:var(--ink)">
+             <span class="num" style="color:var(--glow)">${e.sets}\u00d7${e.reps}${e.unit !== 'reps' ? ` ${e.unit}` : ''}</span>
+             ${h(e.name)}${e.weightLb ? ` <span class="muted">@${e.weightLb}lb</span>` : ''}</div>`).join('')}`}
+
+      <div class="eyebrow" style="margin:16px 0 6px">Habits \u00b7 ${d.habitsDone}/${d.habits.length}</div>
+      ${d.habits.length ? d.habits.map((hb) => {
+        const done = st.habitLog[sel]?.[hb.id] !== undefined;
+        return `<div class="tiny" style="padding:3px 0;color:${done ? 'var(--faint)' : 'var(--ink)'}">
+          ${done ? '\u2713 ' : '\u25cb '}${h(hb.name)} <span class="muted">+${hb.gold}g</span></div>`;
+      }).join('') : '<div class="tiny muted">Nothing scheduled.</div>'}
+    </div>
+
+    <div class="window">
+      <div class="window-title"><h2>This month</h2></div>
+      <div class="grid3">
+        <div class="stat"><b>${cleared}</b><span>CLEARED</span></div>
+        <div class="stat"><b>${sessions}</b><span>SESSIONS</span></div>
+        <div class="stat"><b>${offDays}</b><span>DAYS OFF</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
    TAB 4 — SHOP
    ============================================================ */
 function shopTab() {
@@ -571,6 +724,7 @@ function getPath(o, p) { return p.split('.').reduce((a, k) => (a == null ? a : a
    ============================================================ */
 const TABS = [
   ['quests', '\u25c8', 'Quests'],
+  ['calendar', '\u25a6', 'Month'],
   ['gym', '\u2694', 'Gym'],
   ['habits', '\u25c9', 'Habits'],
   ['shop', '\u25c6', 'Shop'],
@@ -583,7 +737,7 @@ export function render() {
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
   const dueH = E.habitsFor(s, today).filter((x) => !s.habitLog[today]?.[x.id]).length;
 
-  const body = { quests: questsTab, gym: gymTab, habits: habitsTab, shop: shopTab, settings: settingsTab }[ui.tab]();
+  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, settings: settingsTab }[ui.tab]();
 
   document.getElementById('app').innerHTML = statusBar() + body;
   document.getElementById('tabs').innerHTML = TABS.map(([k, ico, label]) => {

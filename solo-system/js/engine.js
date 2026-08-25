@@ -140,13 +140,13 @@ export function habitsFor(state, key) {
 /* ============================================================
    GYM — plan selection, cycle position, progression
    ============================================================ */
-export function activePlanKey(state) {
+export function activePlanKey(state, key) {
   const s = state.settings;
   if (s.season === 'school') return 'school';
   if (s.season === 'summer') return 'summer';
   const end = s.schoolYearEnd;
   if (!end) return 'school';
-  return todayKey(s) > end ? 'summer' : 'school';
+  return (key || todayKey(s)) > end ? 'summer' : 'school';
 }
 
 export function cyclePosition(state, key = todayKey(state.settings)) {
@@ -156,7 +156,7 @@ export function cyclePosition(state, key = todayKey(state.settings)) {
 }
 
 export function prescribedFor(state, key = todayKey(state.settings)) {
-  const planKey = activePlanKey(state);
+  const planKey = activePlanKey(state, key);
   const plan = state.plans[planKey];
   const { day } = cyclePosition(state, key);
   const raw = (plan.days[day] || []).map((e) => ({ ...e }));
@@ -184,6 +184,34 @@ export function prescribedFor(state, key = todayKey(state.settings)) {
         range: `${rung.lo}\u2013${rung.hi}`,
       };
     }),
+  };
+}
+
+/** Training for any date. Null when the date predates the current cycle,
+ *  since we can't say what was scheduled before it began. */
+export function planForDate(state, key) {
+  if (key < state.cycle.startDate) return null;
+  return prescribedFor(state, key);
+}
+
+/** Everything happening on one day, in one object. */
+export function dayDetail(state, key) {
+  const quests = Object.values(state.quests)
+    .filter((q) => !q.dismissed && dueDay(q) === key)
+    .sort((a, b) => RANKS.indexOf(rankOf(b, state.settings)) - RANKS.indexOf(rankOf(a, state.settings)));
+  const training = planForDate(state, key);
+  const habits = habitsFor(state, key);
+  const log = state.habitLog[key] || {};
+  return {
+    key,
+    quests,
+    openQuests: quests.filter((q) => !q.done && !q.missed),
+    training,
+    trained: !!state.gymLog[key]?.done,
+    habits,
+    habitsDone: habits.filter((x) => log[x.id] !== undefined).length,
+    dayOff: isDayOff(state, key),
+    gymRest: isGymRest(state, key),
   };
 }
 

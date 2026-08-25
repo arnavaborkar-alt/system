@@ -12,6 +12,12 @@ const $ = (sel) => document.querySelector(sel);
    ============================================================ */
 const localDay = (iso) => (/Z$/.test(iso) ? dateKey(new Date(iso)) : iso.slice(0, 10));
 
+const shiftM = (ym, n) => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 let syncing = false;
 async function syncSchoology(quiet = false) {
   const s = g();
@@ -444,6 +450,11 @@ const actions = {
     ui.open = 'gym'; render();
   },
 
+  'cal-prev'() { ui.calMonth = shiftM(ui.calMonth || tk().slice(0, 7), -1); ui.calDay = null; render(); },
+  'cal-next'() { ui.calMonth = shiftM(ui.calMonth || tk().slice(0, 7), 1); ui.calDay = null; render(); },
+  'cal-today'() { ui.calMonth = tk().slice(0, 7); ui.calDay = tk(); render(); },
+  'cal-day'(el) { ui.calDay = el.dataset.k; ui.calMonth = el.dataset.k.slice(0, 7); render(); },
+
   'tab-settings-gym'() { ui.tab = 'settings'; ui.open = 'gym'; render(); window.scrollTo(0, 0); },
   'tab-settings-habits'() { ui.tab = 'settings'; ui.open = 'habits'; render(); window.scrollTo(0, 0); },
   'tab-settings-shop'() { ui.tab = 'settings'; ui.open = 'shop'; render(); window.scrollTo(0, 0); },
@@ -455,7 +466,11 @@ const actions = {
    ============================================================ */
 document.addEventListener('click', (ev) => {
   const tab = ev.target.closest('[data-tab]');
-  if (tab) { ui.tab = tab.dataset.tab; ui.open = null; render(); window.scrollTo(0, 0); return; }
+  if (tab) {
+    ui.tab = tab.dataset.tab; ui.open = null;
+    if (ui.tab === 'calendar' && !ui.calDay) { ui.calDay = tk(); ui.calMonth = tk().slice(0, 7); }
+    render(); window.scrollTo(0, 0); return;
+  }
 
   const setVal = ev.target.closest('[data-set-val]');
   if (setVal) {
