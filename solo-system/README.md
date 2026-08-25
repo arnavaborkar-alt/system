@@ -121,6 +121,12 @@ Refreshes roughly every 15 minutes, and tapping it opens the app.
 
 ## How the numbers work
 
+**Month view.** The calendar tab shows every due date, training day, habit day and
+booked day off in one grid. Coloured dot = highest-ranked quest due that day (green once
+they're all cleared), diamond = training, bar = habits, gold cell = day off. Tap any day
+for its full breakdown, and you can clear quests straight from there. Works for past and
+future months, so you can see a heavy week coming.
+
 **Quests.** Tap any quest's name to open it — rename it, change the class, move the
 due date, or delete it. Deleting one that came from Schoology keeps a hidden tombstone
 so the next sync can't put it back; it sits under **Deleted** if you want it returned.
