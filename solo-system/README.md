@@ -132,6 +132,13 @@ due date, or delete it. Deleting one that came from Schoology keeps a hidden tom
 so the next sync can't put it back; it sits under **Deleted** if you want it returned.
 Manual quests are removed outright.
 
+**Clearing out a backlog.** Joining a course mid-year dumps its whole past into your
+list. When five or more quests are dated before today, a banner offers **Clear them
+out** — pick a date, choose whether to include already-cleared ones, and they're gone.
+It also sets the sync cutoff to that date so Schoology can't hand them back. For picking
+specific ones, hit **Select**, tap the rows you want, and delete them together. The
+cutoff is editable any time under System → Schoology.
+
 **Ranks.** Every quest gets E through S from words in its title — "final exam" scores
 high, "reading" scores low, AP and Honors classes get a bump. Tap the rank chip on any
 quest to override it; a gold dot marks the ones you've set yourself. All the keyword
