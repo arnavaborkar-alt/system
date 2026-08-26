@@ -39,9 +39,13 @@ async function syncSchoology(quiet = false) {
     let added = 0;
 
     store.update((st) => {
+      const cutoff = s.settings.ignoreBefore || '';
+      let skipped = 0;
+
       body.events.forEach((ev) => {
         const hay = `${ev.title} ${ev.course}`.toLowerCase();
         if (ignore.some((k) => hay.includes(k))) return;
+        if (cutoff && ev.due && localDay(ev.due) < cutoff) { skipped++; return; }
         const id = `ics:${ev.uid}`;
         const existing = st.quests[id];
         if (existing?.dismissed) return;              // deleted on purpose — leave it alone
@@ -66,7 +70,8 @@ async function syncSchoology(quiet = false) {
       st.lastSync = new Date().toISOString();
     });
 
-    notify(added ? 'gold' : '', 'Sync complete', added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new');
+    notify(added ? 'gold' : '', 'Sync complete',
+      `${added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new'}${skipped ? ` \u00b7 ${skipped} old skipped` : ''}`);
   } catch (e) {
     notify('bad', 'Sync failed', e.message);
   } finally {
@@ -170,6 +175,72 @@ const actions = {
       else { t.dueKey = null; t.due = null; }
       t.edited = true;
     });
+    render();
+  },
+
+  async 'purge-old'() {
+    const st = g();
+    const today = tk();
+    const openCount = E.questsBefore(st, today, 'open').length;
+    const allCount = E.questsBefore(st, today, 'all').length;
+
+    if (!allCount) return notify('', 'System', 'Nothing dated before today.');
+
+    const v = await dialog({
+      title: 'Clear out old quests',
+      message: `${openCount} unfinished and ${allCount - openCount} cleared quests are dated before today.`,
+      confirm: 'Delete',
+      fields: [
+        { name: 'before', label: 'Delete anything due before', type: 'date', value: today },
+        { name: 'scope', label: 'What to remove', value: 'open', options: [
+          { value: 'open', label: 'Only unfinished ones' },
+          { value: 'all', label: 'Everything, cleared ones too' },
+        ] },
+      ],
+    });
+    if (!v || !v.before) return;
+
+    let n = 0;
+    store.update((stt) => { n = E.purgeBefore(stt, v.before, v.scope); });
+    notify(n ? 'bad' : '', n ? 'Cleared' : 'System',
+      n ? `${n} quest${n === 1 ? '' : 's'} deleted \u00b7 sync will skip anything older` : 'Nothing matched that date');
+    render();
+  },
+
+  'select-mode'() { ui.selecting = !ui.selecting; ui.selected = new Set(); render(); },
+
+  'sel-toggle'(el) {
+    const id = el.dataset.id;
+    ui.selected = ui.selected || new Set();
+    ui.selected.has(id) ? ui.selected.delete(id) : ui.selected.add(id);
+    render();
+  },
+
+  'sel-all'() {
+    const st = g();
+    const open = Object.values(st.quests).filter((q) => !q.done && !q.missed && !q.dismissed);
+    ui.selected = ui.selected?.size === open.length ? new Set() : new Set(open.map((q) => q.id));
+    render();
+  },
+
+  async 'sel-delete'() {
+    const ids = [...(ui.selected || [])];
+    if (!ids.length) return;
+    const v = await dialog({
+      title: 'Delete selected', danger: true, confirm: `Delete ${ids.length}`,
+      message: `${ids.length} quest${ids.length === 1 ? '' : 's'} will be removed. Schoology won't re-add them.`,
+    });
+    if (!v) return;
+    store.update((st) => {
+      ids.forEach((id) => {
+        const q = st.quests[id];
+        if (!q) return;
+        if (q.source === 'schoology') q.dismissed = true; else delete st.quests[id];
+      });
+    });
+    ui.selected = new Set();
+    ui.selecting = false;
+    notify('bad', 'Deleted', `${ids.length} quest${ids.length === 1 ? '' : 's'}`);
     render();
   },
 

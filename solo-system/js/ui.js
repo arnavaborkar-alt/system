@@ -2,7 +2,7 @@ import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL } from './config.js';
 import * as E from './engine.js';
 
-export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null };
+export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null, selecting: false, selected: new Set() };
 
 /* ---------- helpers ---------- */
 const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -145,9 +145,12 @@ function questsTab() {
     const rank = E.rankOf(q, s.settings);
     const r = E.questReward(q, s.settings, s.questStreak || 0, today);
     const dl = dueLabel(q);
+    const picked = ui.selected?.has(q.id);
     return `<div class="row" data-quest="${h(q.id)}">
-      <button class="check" data-act="finish-quest" data-id="${h(q.id)}" aria-label="Complete ${h(q.title)}">\u2713</button>
-      <div class="body tappable" data-act="open-quest" data-id="${h(q.id)}" role="button" tabindex="0">
+      ${ui.selecting
+        ? `<button class="check ${picked ? 'on' : ''}" data-act="sel-toggle" data-id="${h(q.id)}">\u2713</button>`
+        : `<button class="check" data-act="finish-quest" data-id="${h(q.id)}" aria-label="Complete ${h(q.title)}">\u2713</button>`}
+      <div class="body ${ui.selecting ? '' : 'tappable'}" ${ui.selecting ? `data-act="sel-toggle" data-id="${h(q.id)}"` : `data-act="open-quest" data-id="${h(q.id)}"`} role="button" tabindex="0">
         <div class="t">${h(q.title)}</div>
         <div class="s">
           ${q.course ? `<span>${h(q.course)}</span>` : ''}
@@ -176,11 +179,25 @@ function questsTab() {
     : section('Overdue', buckets.overdue) + section('Due today', buckets.today)
       + section('This week', buckets.soon) + section('Later', buckets.later);
 
+  const oldCount = E.questsBefore(s, today, 'all').length;
+
   return `<div class="wrap">
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <button style="flex:1" data-act="sync">${s.settings.icsUrl ? 'Sync Schoology' : 'Add calendar link'}</button>
-      <button data-act="add-quest">+ Quest</button>
-    </div>
+    ${ui.selecting ? `<div class="selbar">
+        <button class="sm ghost" data-act="sel-all">${ui.selected?.size === open.length && open.length ? 'None' : 'All'}</button>
+        <span class="num">${ui.selected?.size || 0} selected</span>
+        <button class="sm danger" data-act="sel-delete" ${ui.selected?.size ? '' : 'disabled'}>Delete</button>
+        <button class="sm ghost" data-act="select-mode">Done</button>
+      </div>`
+    : `<div style="display:flex;gap:8px;margin-bottom:14px">
+        <button style="flex:1" data-act="sync">${s.settings.icsUrl ? 'Sync Schoology' : 'Add calendar link'}</button>
+        <button data-act="add-quest">+ Quest</button>
+        ${open.length ? '<button data-act="select-mode">Select</button>' : ''}
+      </div>`}
+
+    ${oldCount >= 5 && !ui.selecting ? `<div class="window" style="padding:13px 16px">
+      <div class="tiny" style="color:var(--gold);margin-bottom:9px">${oldCount} quests are dated before today \u2014 usually leftovers from joining a course.</div>
+      <button class="sm gold" data-act="purge-old">Clear them out</button>
+    </div>` : ''}
     ${s.lastSync ? `<div class="tiny muted" style="margin:-8px 0 12px;font-family:var(--m)">Last sync ${new Date(s.lastSync).toLocaleString()}</div>` : ''}
     ${body}
     ${missed.length ? `<div class="window"><div class="window-title"><h2>Failed</h2><span class="count">${missed.length}</span></div>
@@ -560,6 +577,8 @@ function settingsTab() {
       ${T('iCal link', 'icsUrl', 'url', 'placeholder="https://\u2026.schoology.com/ical/\u2026"')}
       <div class="tiny muted" style="margin-bottom:12px">In Schoology: your name \u2192 Settings \u2192 Share Your Schoology Calendar \u2192 Enable \u2192 copy the link. It only appears once your calendar has at least one item on it.</div>
       ${T('Auto-sync every (hours)', 'autoSyncHours', 'number', 'min="1" max="48"')}
+      ${T('Ignore anything due before', 'ignoreBefore', 'date')}
+      <div class="tiny muted" style="margin:-8px 0 12px">Stops old back-work appearing when you join a course mid-year. Leave blank to import everything.</div>
       <div class="field"><label>Skip anything containing</label>
         <input data-set="ignoreKeywords" value="${h((st.ignoreKeywords || []).join(', '))}" placeholder="no school, assembly"></div>
       <button data-act="sync">Sync now</button>

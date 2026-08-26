@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   // ---- Schoology ----
   icsUrl: '',
   autoSyncHours: 6,
+  ignoreBefore: '',   // sync skips anything due before this date (YYYY-MM-DD)
   ignoreKeywords: ['attendance', 'no school', 'holiday', 'spirit week', 'assembly'],
 
   // ---- Gold paid per rank ----

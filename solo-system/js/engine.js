@@ -385,6 +385,29 @@ export function rollover(state) {
 }
 
 /* ============================================================
+   BULK CLEANUP
+   ============================================================ */
+/** Quests dated before `before`. scope: 'open' | 'all' */
+export function questsBefore(state, before, scope = 'open') {
+  return Object.values(state.quests).filter((q) => {
+    if (q.dismissed) return false;
+    const d = dueDay(q);
+    if (!d || d >= before) return false;
+    return scope === 'all' ? true : !q.done;
+  });
+}
+
+/** Remove them outright. Safe to hard-delete because the sync cutoff moves with it,
+ *  so Schoology can't hand them back on the next pull. Gold already earned is untouched. */
+export function purgeBefore(state, before, scope = 'open') {
+  const doomed = questsBefore(state, before, scope);
+  doomed.forEach((q) => { delete state.quests[q.id]; });
+  const cur = state.settings.ignoreBefore || '';
+  if (!cur || before > cur) state.settings.ignoreBefore = before;
+  return doomed.length;
+}
+
+/* ============================================================
    SHOP
    ============================================================ */
 export function cooldownLeft(state, item) {
