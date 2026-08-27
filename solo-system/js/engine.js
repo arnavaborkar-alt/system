@@ -332,6 +332,12 @@ export function rollover(state) {
   const today = todayKey(s);
   const events = [];
 
+  // Saves that predate the lifetime counters report gold they never "earned".
+  // Rebuild the floor from what's demonstrably passed through the purse.
+  // Once the invariant holds this is a no-op, so it's safe to run every boot.
+  const passedThrough = Math.round((state.gold || 0) + (state.lifetimeSpent || 0));
+  if ((state.lifetimeEarned || 0) < passedThrough) state.lifetimeEarned = passedThrough;
+
   state.daysOff = state.daysOff || [];
   state.gymRestDays = state.gymRestDays || [];
   state.habitSkips = state.habitSkips || 0;
