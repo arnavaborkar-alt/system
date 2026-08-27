@@ -78,11 +78,15 @@ function scoreEntry(prev, state, now = Date.now()) {
 
   const claimed = Math.max(0, Number(state.lifetimeEarned) || 0);
 
-  // First time the server sees this hunter there is no history to compare
-  // against, so the save becomes the starting line rather than evidence of
-  // anything. Rate checks begin from the next write on. BOARD_V bumps let a
-  // scoring change re-baseline everyone once instead of flagging them all.
-  if (!prev || prev.v !== BOARD_V) {
+  // A baseline is warranted whenever there's no meaningful history to compare
+  // against yet: a brand-new entry, a version bump, OR an entry whose own first
+  // save was itself degenerate (claimed dropped to ~0 while gold sat well above
+  // it \u2014 the signature of a save written before the client's own counters
+  // were populated). Re-baselining in that last case costs nothing: a cheater
+  // gains one baseline no matter how many times they trigger it, since the
+  // baseline is a snapshot of *current* claimed gold, not a bonus on top.
+  const degenerate = prev && prev.writes <= 1 && prev.claimed < 5 && claimed > BURST_FLOOR;
+  if (!prev || prev.v !== BOARD_V || degenerate) {
     const base = Math.min(BASELINE_CAP, claimed);
     const spent0 = Math.max(0, Number(state.lifetimeSpent) || 0);
     return {
