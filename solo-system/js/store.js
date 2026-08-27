@@ -159,7 +159,9 @@ class Store {
       } catch { this.status = 'offline'; }
       this.emit();
     };
-    if (immediate) push(); else this.saveTimer = setTimeout(push, 1200);
+    if (immediate) return push();
+    this.saveTimer = setTimeout(push, 1200);
+    return Promise.resolve();
   }
 
   async board() {

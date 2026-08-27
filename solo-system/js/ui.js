@@ -562,6 +562,11 @@ function boardTab() {
 
     ${b?.error ? `<div class="window"><div class="tiny" style="color:var(--danger)">${h(b.error)}</div></div>` : ''}
 
+    ${b?.rows?.some((r) => r.me && r.v < (b.scoring || 1)) ? `<div class="window">
+      <div class="tiny" style="color:var(--gold)">Your standing was scored by an older version of the server and hasn't been rebuilt yet.
+      That happens when <span class="num">api/state.js</span> is behind <span class="num">api/board.js</span> \u2014 upload it and hit Refresh.</div>
+    </div>` : ''}
+
     ${!mine.optIn ? `<div class="window"><div class="empty">
         <span class="mark">\u25b2</span>You're not on the board.<br>
         <span class="tiny">Tap Join to add your name. You can leave any time.</span>
