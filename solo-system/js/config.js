@@ -4,7 +4,10 @@
    This file is only the starting state.
    ============================================================ */
 
-export const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
+export const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S+'];
+
+/** 'S+' can't be a CSS class on its own, so styling uses this. */
+export const rankClass = (r) => (r === 'S+' ? 'SS' : r);
 
 export const DEFAULT_SETTINGS = {
   hunterName: 'Hunter',
@@ -19,10 +22,10 @@ export const DEFAULT_SETTINGS = {
   ignoreKeywords: ['attendance', 'no school', 'holiday', 'spirit week', 'assembly'],
 
   // ---- Gold paid per rank ----
-  goldByRank: { E: 10, D: 25, C: 45, B: 80, A: 140, S: 240 },
+  goldByRank: { E: 10, D: 25, C: 45, B: 80, A: 140, S: 240, 'S+': 400 },
 
   // ---- XP paid per rank ----
-  xpByRank: { E: 6, D: 12, C: 22, B: 40, A: 70, S: 120 },
+  xpByRank: { E: 6, D: 12, C: 22, B: 40, A: 70, S: 120, 'S+': 200 },
 
   // ---- Bonuses & penalties (multipliers / flat gold) ----
   earlyBonusPct: 15,        // finished >24h before due
@@ -73,10 +76,25 @@ export const DEFAULT_SETTINGS = {
 /* ============================================================
    LEVEL CURVE — total XP required to reach each level
    ============================================================ */
+export const XP_BASE = 90;
+export const XP_CURVE = 1.55;
+
 export function xpForLevel(level) {
   // Level 1 must sit at 0 XP, or the progress readout goes negative
   // and every level costs one level's worth of XP too much.
-  return Math.round(90 * Math.pow(Math.max(0, level - 1), 1.55));
+  return Math.round(XP_BASE * Math.pow(Math.max(0, level - 1), XP_CURVE));
+}
+
+/** No level ceiling. Inverts the curve directly, then nudges for rounding,
+ *  so there's no loop bound to run into however far someone gets. */
+export function levelForXp(xp) {
+  const x = Math.max(0, Number(xp) || 0);
+  if (!isFinite(x) || x < xpForLevel(2)) return 1;
+  let l = Math.floor(Math.pow(x / XP_BASE, 1 / XP_CURVE)) + 1;
+  if (!isFinite(l) || l < 1) return 1;
+  while (l > 1 && xpForLevel(l) > x) l--;
+  while (xpForLevel(l + 1) <= x) l++;
+  return l;
 }
 
 export const HUNTER_RANK_BY_LEVEL = [
@@ -86,7 +104,11 @@ export const HUNTER_RANK_BY_LEVEL = [
   { min: 32, rank: 'B', title: 'B-Rank Hunter' },
   { min: 46, rank: 'A', title: 'A-Rank Hunter' },
   { min: 62, rank: 'S', title: 'S-Rank Hunter' },
-  { min: 80, rank: 'S', title: 'Shadow Monarch' },
+  { min: 80, rank: 'S+', title: 'National Level' },
+  { min: 100, rank: 'S+', title: 'Monarch' },
+  { min: 130, rank: 'S+', title: 'Absolute Monarch' },
+  { min: 170, rank: 'S+', title: 'Ruler' },
+  { min: 220, rank: 'S+', title: 'Sovereign' },
 ];
 
 /* ============================================================
@@ -228,6 +250,7 @@ export const DEFAULT_SHOP = [
   { id: 's3', name: 'Rest day (gym)', desc: 'Skip one training day. Streak stays alive.', price: 550, cooldownDays: 5, icon: '◇', grants: { type: 'gymRest', days: 1 } },
   { id: 's4', name: '2 hours of gaming', desc: 'Blocked-off time, nothing owed.', price: 700, cooldownDays: 2, icon: '⬗', grants: null },
   { id: 's5', name: 'Late night pass', desc: 'Stay up as late as you want, once.', price: 900, cooldownDays: 7, icon: '☾', grants: null },
+  { id: 's9', name: 'Double gold & XP', desc: 'Everything you clear for one day pays twice. Not usable on a day off.', price: 1200, cooldownDays: 5, icon: '✦', grants: { type: 'boost', days: 1, mult: 2 } },
   { id: 's6', name: 'Full day off', desc: 'No quests, no training, no habits. Nothing counts against you.', price: 3500, cooldownDays: 14, icon: '★', grants: { type: 'dayOff', days: 1 } },
   { id: 's7', name: 'Weekend off', desc: 'Two consecutive days, fully clear.', price: 6000, cooldownDays: 30, icon: '✦', grants: { type: 'dayOff', days: 2 } },
   { id: 's8', name: 'Vacation week', desc: 'Seven days off. Everything pauses, nothing decays.', price: 20000, cooldownDays: 120, icon: '✵', grants: { type: 'dayOff', days: 7 } },

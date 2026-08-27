@@ -1,8 +1,8 @@
 import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
-import { RANKS, STATS, STAT_LABEL } from './config.js';
+import { RANKS, STATS, STAT_LABEL, rankClass } from './config.js';
 import * as E from './engine.js';
 
-export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null, selecting: false, selected: new Set() };
+export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null, selecting: false, selected: new Set(), board: null, boardLoading: false };
 
 /* ---------- helpers ---------- */
 const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -100,6 +100,20 @@ export function levelUpWindow(level) {
 /* ============================================================
    STATUS HEADER
    ============================================================ */
+function boostBanner() {
+  const s = g();
+  const mult = E.boostFor(s, tk());
+  if (mult === 1) return '';
+  const ends = E.boostEndsAt(s, tk());
+  const left = Math.max(0, ends - Date.now());
+  const hrs = Math.floor(left / 3.6e6);
+  const mins = Math.floor((left % 3.6e6) / 6e4);
+  return `<div class="boostbar">
+    <span class="k">\u2726 ${mult}\u00d7 GOLD &amp; XP</span>
+    <span class="t num">${hrs}h ${String(mins).padStart(2, '0')}m left</span>
+  </div>`;
+}
+
 function statusBar() {
   const s = g();
   const p = E.levelProgress(s.xp);
@@ -107,7 +121,7 @@ function statusBar() {
   const off = E.isDayOff(s, tk());
   const label = { cloud: 'synced', local: 'this device', offline: 'offline', nocloud: 'no database', badkey: 'wrong key' }[store.status] || store.status;
 
-  return `<div class="status">
+  return `${boostBanner()}<div class="status">
     <div class="status-top">
       <div class="lvl-badge"><div><b>${p.level}</b><span>LV</span></div></div>
       <div>
@@ -143,7 +157,7 @@ function questsTab() {
 
   const row = (q) => {
     const rank = E.rankOf(q, s.settings);
-    const r = E.questReward(q, s.settings, s.questStreak || 0, today);
+    const r = E.questReward(q, s.settings, s.questStreak || 0, today, s);
     const dl = dueLabel(q);
     const picked = ui.selected?.has(q.id);
     return `<div class="row" data-quest="${h(q.id)}">
@@ -159,7 +173,7 @@ function questsTab() {
         </div>
       </div>
       <span class="pay">+${r.gold}g</span>
-      <button class="rank ${rank}${q.manualRank ? ' manual' : ''}" data-act="cycle-rank" data-id="${h(q.id)}"
+      <button class="rank ${rankClass(rank)}${q.manualRank ? ' manual' : ''}" data-act="cycle-rank" data-id="${h(q.id)}"
         title="Tap to change difficulty">${rank}</button>
     </div>`;
   };
@@ -390,7 +404,7 @@ function calendarTab() {
     const marks = [];
     if (d.openQuests.length) {
       const top = E.rankOf(d.openQuests[0], st.settings);
-      marks.push(`<i class="m rank-${top}" title="${d.openQuests.length} due"></i>`);
+      marks.push(`<i class="m rank-${rankClass(top)}" title="${d.openQuests.length} due"></i>`);
     } else if (d.quests.length) {
       marks.push('<i class="m done"></i>');
     }
@@ -419,7 +433,7 @@ function calendarTab() {
         <div class="t">${h(q.title)}</div>
         <div class="s">${h(q.course || '')}${q.done ? ` \u00b7 +${q.paid || 0}g` : ''}</div>
       </div>
-      <span class="rank ${r}">${r}</span>
+      <span class="rank ${rankClass(r)}">${r}</span>
     </div>`;
   };
 
@@ -490,6 +504,95 @@ function calendarTab() {
         <div class="stat"><b>${offDays}</b><span>DAYS OFF</span></div>
       </div>
     </div>
+  </div>`;
+}
+
+/* ============================================================
+   TAB — RANKING
+   ============================================================ */
+const FLAG_TEXT = {
+  rate: 'gold climbed faster than the day allows',
+  level: 'level doesn\u2019t match the XP reported',
+  balance: 'holding more gold than was ever earned',
+  spam: 'saves arriving faster than a person taps',
+};
+
+function boardTab() {
+  const st = g();
+  const b = ui.board;
+  const mine = st.board || {};
+
+  if (!store.key) {
+    return `<div class="wrap"><div class="window"><div class="empty">
+      <span class="mark">\u25b2</span>The ranking needs cloud sync.<br>
+      <span class="tiny">Add your hunter key under System \u2192 Sync &amp; data.</span>
+    </div></div></div>`;
+  }
+
+  const rowFor = (r) => `<div class="brow ${r.me ? 'me' : ''}">
+    <span class="place ${r.rank <= 3 ? `p${r.rank}` : ''}">${r.rank}</span>
+    <div class="body">
+      <div class="t">${h(r.name)}${r.me ? ' <span class="pill on">you</span>' : ''}
+        ${r.flagged ? '<span class="pill bad" title="unusual activity">\u26a0</span>' : ''}</div>
+      <div class="s">
+        <span>LV ${r.level}</span>
+        ${r.streak ? `<span>${r.streak}d streak</span>` : ''}
+        <span>${r.week.quests} quests</span>
+        <span>${r.week.sessions}/7 training</span>
+        <span class="muted">${Math.round(r.earned).toLocaleString()}g earned</span>
+      </div>
+    </div>
+    <span class="pay">${Math.round(r.gold ?? 0).toLocaleString()}g</span>
+  </div>`;
+
+  const flagged = (b?.rows || []).filter((r) => r.flagged);
+
+  return `<div class="wrap">
+    <div class="window">
+      <div class="window-title">
+        <h2>Ranking</h2>
+        <span class="count">${b?.onBoard ?? '\u2014'} hunters</span>
+      </div>
+      <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. That number can never rise above what the server watched you earn, so a hand-edited save gets you nowhere.</div>
+      <div class="grid2">
+        <button data-act="board-refresh">${ui.boardLoading ? 'Loading\u2026' : 'Refresh'}</button>
+        <button class="${mine.optIn ? 'ghost' : 'gold'}" data-act="board-join">${mine.optIn ? 'Edit / leave' : 'Join'}</button>
+      </div>
+    </div>
+
+    ${b?.error ? `<div class="window"><div class="tiny" style="color:var(--danger)">${h(b.error)}</div></div>` : ''}
+
+    ${!mine.optIn ? `<div class="window"><div class="empty">
+        <span class="mark">\u25b2</span>You're not on the board.<br>
+        <span class="tiny">Tap Join to add your name. You can leave any time.</span>
+      </div></div>` : ''}
+
+    ${b?.rows?.length ? `<div class="window">
+        ${b.rows.map(rowFor).join('')}
+      </div>` : b && !b.error ? `<div class="window"><div class="empty">
+        <span class="mark">\u25cb</span>Nobody has joined yet.
+      </div></div>` : ''}
+
+    ${flagged.length ? `<div class="window">
+      <div class="window-title"><h2>Flagged</h2><span class="count">${flagged.length}</span></div>
+      ${flagged.map((r) => `<div class="row"><div class="body">
+        <div class="t tiny">${h(r.name)}</div>
+        <div class="s">${r.flags.map((f) => h(FLAG_TEXT[f] || f)).join(' \u00b7 ')}</div>
+      </div></div>`).join('')}
+      <div class="tiny muted" style="margin-top:10px">Flags are permanent once raised. They don't remove anyone \u2014 they just show what the server noticed.</div>
+    </div>` : ''}
+
+    <details class="acc"><summary>How cheating is handled</summary><div>
+      <div class="tiny" style="color:var(--ink);line-height:1.55">
+        Everything in this app runs in the browser, so anyone can edit their own save. That can't be prevented \u2014 only made pointless.
+        <br><br>
+        The board shows your current gold, but it never trusts the figure your app sends. The server keeps its own running total of what you've earned and, on each save, credits only what could plausibly have been earned since your last one \u2014 120 gold an hour, 1,500 a day. Your displayed gold is then capped at that verified total minus everything you've spent. Set your save to a million and the board still shows what the server can vouch for, and marks you.
+        <br><br>
+        It also re-derives your level from your XP, and watches for saves arriving faster than a person taps. There's no level ceiling and no gold ceiling \u2014 only a ceiling on how fast either can climb.
+        <br><br>
+        The honest limit: someone patient could still drip small fake gains for weeks. At that point they're doing about as much work as the homework.
+      </div>
+    </div></details>
   </div>`;
 }
 
@@ -586,7 +689,7 @@ function settingsTab() {
 
     <details class="acc" ${ui.open === 'gold' ? 'open' : ''}><summary>Gold &amp; difficulty</summary><div>
       <label>Gold per rank</label>
-      ${RANKS.map((r) => `<div class="editrow"><span class="rank ${r}">${r}</span>
+      ${RANKS.map((r) => `<div class="editrow"><span class="rank ${rankClass(r)}">${r}</span>
         <input class="num-in" type="number" data-set="goldByRank.${r}" value="${st.goldByRank[r]}">
         <input class="num-in w" type="number" data-set="xpByRank.${r}" value="${st.xpByRank[r]}" title="XP"></div>`).join('')}
       <div class="tiny muted" style="margin:6px 0 16px">Left column is gold, right is XP.</div>
@@ -747,6 +850,7 @@ const TABS = [
   ['gym', '\u2694', 'Gym'],
   ['habits', '\u25c9', 'Habits'],
   ['shop', '\u25c6', 'Shop'],
+  ['board', '\u25b2', 'Rank'],
   ['settings', '\u2699', 'System'],
 ];
 
@@ -756,8 +860,9 @@ export function render() {
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
   const dueH = E.habitsFor(s, today).filter((x) => !s.habitLog[today]?.[x.id]).length;
 
-  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, settings: settingsTab }[ui.tab]();
+  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, board: boardTab, settings: settingsTab }[ui.tab]();
 
+  document.body.classList.toggle('boosted', E.boostFor(s, today) > 1);
   document.getElementById('app').innerHTML = statusBar() + body;
   document.getElementById('tabs').innerHTML = TABS.map(([k, ico, label]) => {
     const n = k === 'quests' ? openQ : k === 'habits' ? dueH : 0;

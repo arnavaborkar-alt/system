@@ -1,4 +1,4 @@
-import { RANKS, xpForLevel, HUNTER_RANK_BY_LEVEL, STATS } from './config.js';
+import { RANKS, xpForLevel, levelForXp, HUNTER_RANK_BY_LEVEL, STATS } from './config.js';
 import { todayKey, addDays, daysBetween, dueDay } from './store.js';
 
 /* ============================================================
@@ -39,7 +39,7 @@ export function rankOf(quest, settings) {
 /* ============================================================
    GOLD
    ============================================================ */
-export function questReward(quest, settings, streak, whenKey) {
+export function questReward(quest, settings, streak, whenKey, state = null) {
   const rank = rankOf(quest, settings);
   const base = settings.goldByRank[rank] ?? 25;
   const xp = settings.xpByRank[rank] ?? 12;
@@ -54,22 +54,20 @@ export function questReward(quest, settings, streak, whenKey) {
   }
   pct += Math.min(settings.streakBonusMaxPct, streak * settings.streakBonusPct);
 
+  const mult = state ? boostFor(state, whenKey) : 1;
   return {
     rank,
-    gold: Math.max(1, Math.round(base * (1 + pct / 100))),
-    xp,
+    gold: Math.max(1, Math.round(base * (1 + pct / 100) * mult)),
+    xp: Math.round(xp * mult),
     bonusPct: Math.round(pct),
+    mult,
   };
 }
 
 /* ============================================================
    LEVELS & STATS
    ============================================================ */
-export function levelFromXp(xp) {
-  let lvl = 1;
-  while (lvl < 200 && xp >= xpForLevel(lvl + 1)) lvl++;
-  return lvl;
-}
+export function levelFromXp(xp) { return levelForXp(xp); }
 export function levelProgress(xp) {
   const lvl = levelFromXp(Math.max(0, xp));
   const cur = xpForLevel(lvl);
@@ -89,6 +87,8 @@ export function grantStat(state, stat, amount = 1) {
 }
 
 export function pay(state, delta, reason) {
+  if (delta > 0) state.lifetimeEarned = Math.round(((state.lifetimeEarned || 0) + delta) * 100) / 100;
+  else if (delta < 0) state.lifetimeSpent = Math.round(((state.lifetimeSpent || 0) - delta) * 100) / 100;
   state.gold = Math.round((state.gold + delta) * 100) / 100;
   if (!state.settings.shop.allowNegativeGold && state.gold < 0) state.gold = 0;
   state.ledger.unshift({ at: new Date().toISOString(), delta, reason });
@@ -108,6 +108,21 @@ export function grantXp(state, amount) {
    ============================================================ */
 export function isDayOff(state, key) {
   return (state.daysOff || []).includes(key);
+}
+
+/** Payout multiplier for a given day. 1 when no boost is running. */
+export function boostFor(state, key) {
+  const b = (state.boosts || []).find((x) => x.day === key);
+  return b ? (b.mult || 2) : 1;
+}
+
+/** When the running boost expires, respecting the custom day-rollover hour. */
+export function boostEndsAt(state, key) {
+  if (boostFor(state, key) === 1) return null;
+  const h = state.settings?.dayResetHour ?? 4;
+  const end = new Date(`${addDays(key, 1)}T00:00:00`);
+  end.setHours(end.getHours() + h);
+  return end.getTime();
 }
 export function isGymRest(state, key) {
   return (state.gymRestDays || []).includes(key);
@@ -384,6 +399,23 @@ export function rollover(state) {
   return events;
 }
 
+/** Rolling 7-day activity, for the leaderboard. */
+export function weekStats(state) {
+  const today = todayKey(state.settings);
+  let quests = 0, sessions = 0, habits = 0, habitsDue = 0;
+  for (let i = 0; i < 7; i++) {
+    const k = addDays(today, -i);
+    if (state.gymLog[k]?.done) sessions++;
+    const due = habitsFor(state, k);
+    habitsDue += due.length;
+    habits += due.filter((hb) => state.habitLog[k]?.[hb.id] !== undefined).length;
+  }
+  Object.values(state.quests).forEach((q) => {
+    if (q.done && q.doneAt && daysBetween(q.doneAt.slice(0, 10), today) <= 7) quests++;
+  });
+  return { quests, sessions, habits, habitsDue };
+}
+
 /* ============================================================
    BULK CLEANUP
    ============================================================ */
@@ -423,6 +455,22 @@ export function buy(state, item, startKey) {
   const cd = cooldownLeft(state, item);
   if (cd > 0) return { ok: false, why: `On cooldown for ${cd} more day${cd === 1 ? '' : 's'}.` };
 
+  const from = startKey || todayKey(state.settings);
+  if (item.grants?.type === 'boost') {
+    for (let i = 0; i < (item.grants.days || 1); i++) {
+      if (isDayOff(state, addDays(from, i))) {
+        return { ok: false, why: "That's a day off \u2014 there'd be nothing to double." };
+      }
+    }
+  }
+  if (item.grants?.type === 'dayOff') {
+    for (let i = 0; i < (item.grants.days || 1); i++) {
+      if (boostFor(state, addDays(from, i)) > 1) {
+        return { ok: false, why: 'A double-gold day is already running then.' };
+      }
+    }
+  }
+
   pay(state, -item.price, `Bought: ${item.name}`);
   const rec = { id: `p${Date.now()}`, itemId: item.id, name: item.name, price: item.price, at: new Date().toISOString() };
 
@@ -439,6 +487,15 @@ export function buy(state, item, startKey) {
     rec.covers = [from];
   } else if (g?.type === 'habitSkip') {
     state.habitSkips = (state.habitSkips || 0) + (g.n || 1);
+  } else if (g?.type === 'boost') {
+    const from = startKey || todayKey(state.settings);
+    const days = [];
+    for (let i = 0; i < (g.days || 1); i++) days.push(addDays(from, i));
+    state.boosts = [
+      ...(state.boosts || []).filter((b) => !days.includes(b.day)),
+      ...days.map((day) => ({ day, mult: g.mult || 2 })),
+    ].filter((b) => b.day >= addDays(todayKey(state.settings), -30));
+    rec.covers = days;
   }
 
   state.purchases.unshift(rec);

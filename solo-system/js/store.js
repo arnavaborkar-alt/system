@@ -18,6 +18,8 @@ export function freshState() {
     habits: structuredClone(DEFAULT_HABITS),
 
     gold: 0,
+    lifetimeEarned: 0,   // monotonic; the server verifies its growth
+    lifetimeSpent: 0,    // monotonic; bounds the gold you may display
     xp: 0,
     level: 1,
     stats,
@@ -35,10 +37,12 @@ export function freshState() {
     questStreak: 0,
     lastQuestDay: null,
     daysOff: [],
+    boosts: [],
     gymRestDays: [],
     habitSkips: 0,
     cycleHistory: [],
     lastSync: null,
+    board: { optIn: false, name: '' },
     createdAt: new Date().toISOString(),
   };
 }
@@ -144,16 +148,27 @@ class Store {
     clearTimeout(this.saveTimer);
     const push = async () => {
       try {
+        const payload = { ...this.state, __week: this.weekStats ? this.weekStats(this.state) : {} };
         const r = await fetch('/api/state', {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-hunter-key': this.key },
-          body: JSON.stringify({ state: this.state }),
+          body: JSON.stringify({ state: payload }),
         });
         this.status = r.ok ? 'cloud' : (r.status === 501 ? 'nocloud' : 'offline');
+        if (r.ok) { try { this.standing = (await r.json()).standing; } catch { /* ignore */ } }
       } catch { this.status = 'offline'; }
       this.emit();
     };
     if (immediate) push(); else this.saveTimer = setTimeout(push, 1200);
+  }
+
+  async board() {
+    if (!this.key) return { error: 'Connect your hunter key first.' };
+    try {
+      const r = await fetch('/api/board', { headers: { 'x-hunter-key': this.key } });
+      const j = await r.json();
+      return r.ok ? j : { error: j.error || `Error ${r.status}` };
+    } catch (e) { return { error: e.message }; }
   }
 
   export() { return JSON.stringify(this.state, null, 2); }

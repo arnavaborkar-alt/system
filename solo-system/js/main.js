@@ -99,7 +99,7 @@ const actions = {
     store.update((st) => {
       const q = st.quests[id];
       if (!q || q.done) return;
-      const r = E.questReward(q, st.settings, st.questStreak || 0, tk());
+      const r = E.questReward(q, st.settings, st.questStreak || 0, tk(), st);
       q.done = true; q.missed = false; q.doneAt = new Date().toISOString(); q.paid = r.gold; q.paidRank = r.rank;
       E.pay(st, r.gold, `Quest: ${q.title}`);
       lvl = E.grantXp(st, r.xp);
@@ -207,6 +207,34 @@ const actions = {
     render();
   },
 
+  async 'board-refresh'() {
+    ui.boardLoading = true; render();
+    ui.board = await store.board();
+    ui.boardLoading = false;
+    render();
+  },
+
+  async 'board-join'() {
+    const st = g();
+    const v = await dialog({
+      title: st.board?.optIn ? 'Board settings' : 'Join the ranking',
+      confirm: 'Save',
+      message: 'Everyone on this link sees your name, level, gold earned and weekly activity. Quest titles, classes and notes stay private.',
+      fields: [
+        { name: 'name', label: 'Display name', value: st.board?.name || st.settings.hunterName || '', placeholder: 'Hunter' },
+        { name: 'optIn', label: 'Show me on the board', value: st.board?.optIn ? 'yes' : 'no',
+          options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No, hide me' }] },
+      ],
+    });
+    if (!v) return;
+    store.update((stt) => {
+      stt.board = { optIn: v.optIn === 'yes', name: (v.name || 'Hunter').slice(0, 18) };
+    });
+    store.save({ immediate: true });
+    setTimeout(() => actions['board-refresh'](), 900);
+    render();
+  },
+
   'select-mode'() { ui.selecting = !ui.selecting; ui.selected = new Set(); render(); },
 
   'sel-toggle'(el) {
@@ -311,16 +339,17 @@ const actions = {
       st.gymLog[day] = st.gymLog[day] || { exercises: {} };
       const was = st.gymLog[day].done;
       st.gymLog[day].done = !was;
-      const gold = st.settings.gym.goldPerSession;
+      const mult = E.boostFor(st, day);
+      const gold = Math.round(st.settings.gym.goldPerSession * mult);
       if (!was) {
-        E.pay(st, gold, 'Training session');
-        lvl = E.grantXp(st, Math.round(gold / 3));
+        E.pay(st, gold, `Training session${mult > 1 ? ` (${mult}\u00d7)` : ''}`);
+        lvl = E.grantXp(st, Math.round((st.settings.gym.goldPerSession / 3) * mult));
         const pre = E.prescribedFor(st, day);
         pre.exercises.forEach((e) => E.grantStat(st, e.stat, 1));
         notify('gold', `+${gold} gold`, 'Session cleared');
       } else {
         E.pay(st, -gold, 'Undo training session');
-        st.xp = Math.max(0, st.xp - Math.round(gold / 3));
+        st.xp = Math.max(0, st.xp - Math.round((st.settings.gym.goldPerSession / 3) * mult));
         st.level = E.levelFromXp(st.xp);
       }
     });
@@ -346,10 +375,11 @@ const actions = {
         st.habitStreaks[id] = (st.habitStreaks[id] || 0) + 1;
         const streak = st.habitStreaks[id];
         const bonus = streak % st.settings.habits.streakBonusEvery === 0 ? st.settings.habits.streakBonusGold : 0;
-        const total = hb.gold + bonus;
+        const mult = E.boostFor(st, day);
+        const total = Math.round((hb.gold + bonus) * mult);
         st.habitLog[day][id] = total > 0 ? total : true;
-        E.pay(st, total, `Habit: ${hb.name}`);
-        lvl = E.grantXp(st, Math.max(1, Math.round(hb.gold / 4)));
+        E.pay(st, total, `Habit: ${hb.name}${mult > 1 ? ` (${mult}\u00d7)` : ''}`);
+        lvl = E.grantXp(st, Math.max(1, Math.round((hb.gold / 4) * mult)));
         E.grantStat(st, hb.stat || 'PER', 1);
         notify('gold', `+${total} gold`, bonus ? `${streak}\u00d7 streak bonus` : hb.name);
       }
@@ -648,6 +678,7 @@ document.addEventListener('change', (ev) => {
    BOOT
    ============================================================ */
 async function boot() {
+  store.weekStats = (st) => E.weekStats(st);
   await store.load();
 
   const events = [];
