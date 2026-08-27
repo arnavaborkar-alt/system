@@ -531,7 +531,6 @@ function boardTab() {
         ${r.streak ? `<span>${r.streak}d streak</span>` : ''}
         <span>${r.week.quests} quests</span>
         <span>${r.week.sessions}/7 training</span>
-        <span class="muted">${Math.round(r.earned).toLocaleString()}g earned</span>
       </div>
     </div>
     <span class="pay">${Math.round(r.gold ?? 0).toLocaleString()}g</span>
@@ -544,7 +543,7 @@ function boardTab() {
         <h2>Ranking</h2>
         <span class="count">${b?.onBoard ?? '\u2014'} hunters</span>
       </div>
-      <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. That number can never rise above what the server watched you earn, so a hand-edited save gets you nowhere.</div>
+      <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. This is the honor system \u2014 nothing here is verified, so it\u2019s only worth using with people you actually trust not to edit their save.</div>
       <div class="grid2">
         <button data-act="board-refresh">${ui.boardLoading ? 'Loading\u2026' : 'Refresh'}</button>
         <button class="${mine.optIn ? 'ghost' : 'gold'}" data-act="board-join">${mine.optIn ? 'Edit / leave' : 'Join'}</button>
@@ -564,7 +563,6 @@ function boardTab() {
         <span class="mark">\u25cb</span>Nobody has joined yet.
       </div></div>` : ''}
 
-    <div class="tiny muted" style="margin-top:4px;padding:0 2px">Nothing here is verified \u2014 everyone's own device reports its own numbers, on the honor system.</div>
   </div>`;
 }
 
