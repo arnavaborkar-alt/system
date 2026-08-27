@@ -1,24 +1,12 @@
 /**
- * GET  /api/state   -> { state }
- * POST /api/state   { state }  -> { ok: true }
+ * GET /api/board  -> ranked standings for everyone who opted in.
  *
- * One deployment can serve any number of people. Each passphrase gets its own
- * storage slot, derived from a hash of the passphrase, so nobody can read or
- * overwrite anyone else's save.
- *
- * Required env vars on Vercel:
- *   HUNTER_KEYS      comma-separated passphrases, one per person.
- *                    e.g.  my-secret-phrase,jordans-phrase,sams-phrase
- *                    Set it to the single word  open  to let anyone in with a
- *                    passphrase of 12+ characters (no redeploy to add a friend).
- *   KV_REST_API_URL     (or UPSTASH_REDIS_REST_URL)
- *   KV_REST_API_TOKEN   (or UPSTASH_REDIS_REST_TOKEN)
+ * Only aggregate numbers leave the server. Quest titles, courses, Schoology
+ * links and notes stay private to each hunter.
  */
 
 const crypto = require('crypto');
 
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
 /* ---------- shared board logic (inlined deliberately: no cross-file imports
      inside /api, so nothing depends on Vercel's helper-file conventions) ---------- */
 
@@ -109,21 +97,16 @@ function scoreEntry(prev, state, now = Date.now()) {
   };
 }
 
-const LEGACY_KEY = 'solo-system:state';   // from before multi-hunter support
+const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
+const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
 
 const sha = (v) => crypto.createHash('sha256').update(String(v)).digest();
-
-/** Storage slot for a passphrase. The passphrase itself is never stored. */
-function slotFor(pass) {
-  return `solo-system:state:${sha(pass).toString('hex').slice(0, 24)}`;
-}
+const slotFor = (pass) => sha(pass).toString('hex').slice(0, 24);
 
 function allowList() {
   const raw = process.env.HUNTER_KEYS || process.env.HUNTER_KEY || '';
   return raw.split(',').map((x) => x.trim()).filter(Boolean);
 }
-
-/** Constant-time membership check, so the response time leaks nothing. */
 function authorized(pass) {
   if (!pass) return false;
   const list = allowList();
@@ -133,80 +116,44 @@ function authorized(pass) {
   return list.reduce((hit, k) => (crypto.timingSafeEqual(given, sha(k)) ? true : hit), false);
 }
 
-async function kvGet(key) {
-  const r = await fetch(`${URL_}/get/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-  });
-  if (!r.ok) throw new Error(`kv get ${r.status}`);
-  const j = await r.json();
-  return j.result ? JSON.parse(j.result) : null;
-}
-
-async function kvSet(key, value) {
-  const r = await fetch(`${URL_}/set/${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'content-type': 'text/plain' },
-    body: JSON.stringify(value),
-  });
-  if (!r.ok) throw new Error(`kv set ${r.status}`);
-}
-
-function readBody(req) {
-  if (req.body && typeof req.body === 'object') return Promise.resolve(req.body);
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    req.on('data', (c) => { raw += c; if (raw.length > 8e6) reject(new Error('too large')); });
-    req.on('end', () => { try { resolve(JSON.parse(raw || '{}')); } catch (e) { reject(e); } });
-    req.on('error', reject);
-  });
-}
-
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-
-  if (!allowList().length) {
-    return res.status(501).json({ error: 'Cloud sync is off. Set HUNTER_KEYS in your Vercel environment variables.' });
-  }
-  if (!URL_ || !TOKEN) {
-    return res.status(501).json({ error: 'No database connected. Add an Upstash Redis store in Vercel, then redeploy.' });
-  }
+  if (!allowList().length) return res.status(501).json({ error: 'Cloud sync is off.' });
+  if (!URL_ || !TOKEN) return res.status(501).json({ error: 'No database connected.' });
 
   const pass = req.headers['x-hunter-key'] || '';
   if (!authorized(pass)) return res.status(401).json({ error: 'Wrong key.' });
-  const slot = slotFor(pass);
 
   try {
-    if (req.method === 'GET') {
-      let state = await kvGet(slot);
-      // one-time rescue of a save written before slots existed
-      if (!state && process.env.HUNTER_KEY && pass === process.env.HUNTER_KEY) {
-        state = await kvGet(LEGACY_KEY);
-        if (state) await kvSet(slot, state);
-      }
-      return res.status(200).json({ state });
-    }
-    if (req.method === 'POST') {
-      const body = await readBody(req);
-      if (!body || !body.state) return res.status(400).json({ error: 'No state in request.' });
-      await kvSet(slot, body.state);
+    const board = await readBoard(URL_, TOKEN);
+    const me = slotFor(pass);
 
-      // scoring never blocks the save — a board hiccup must not cost someone their data
-      let standing = null;
-      try {
-        const board = await readBoard(URL_, TOKEN);
-        const id = slot.split(':').pop();
-        const entry = scoreEntry(board[id], body.state);
-        entry.slot = id;
-        board[id] = entry;
-        await writeBoard(URL_, TOKEN, board);
-        standing = { verified: entry.verified, flags: entry.flags };
-      } catch { /* ignore */ }
+    const rows = Object.values(board)
+      .filter((e) => e && e.optIn)
+      .map((e) => ({
+        id: e.slot,
+        me: e.slot === me,
+        name: e.name || 'Hunter',
+        level: e.level || 1,
+        gold: e.gold || 0,
+        earned: e.verified || 0,
+        streak: e.streak || 0,
+        week: e.week || { quests: 0, sessions: 0, habits: 0, habitsDue: 0 },
+        flagged: (e.flags || []).length > 0,
+        flags: e.flags || [],
+        lastSeen: e.lastWrite || null,
+      }))
+      .sort((a, b) => b.gold - a.gold || b.earned - a.earned || b.level - a.level);
 
-      return res.status(200).json({ ok: true, standing });
-    }
-    res.setHeader('Allow', 'GET, POST');
-    return res.status(405).json({ error: 'Method not allowed.' });
+    rows.forEach((r, i) => { r.rank = i + 1; });
+
+    return res.status(200).json({
+      rows,
+      total: Object.keys(board).length,
+      onBoard: rows.length,
+      youOptedIn: !!board[me]?.optIn,
+    });
   } catch (e) {
-    return res.status(500).json({ error: `Storage failed: ${e.message}` });
+    return res.status(500).json({ error: e.message });
   }
 };
