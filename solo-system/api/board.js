@@ -184,6 +184,7 @@ module.exports = async (req, res) => {
     rows.forEach((r, i) => { r.rank = i + 1; });
 
     return res.status(200).json({
+      scoring: BOARD_V,
       rows,
       total: Object.keys(board).length,
       onBoard: rows.length,
