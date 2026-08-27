@@ -209,7 +209,7 @@ const actions = {
 
   async 'board-refresh'() {
     ui.boardLoading = true; render();
-    // a save is what makes the server rescore, so push one before reading
+    // push a save first so your own row reflects anything not yet synced
     store.state.updatedAt = new Date().toISOString();
     await store.save({ immediate: true });
     await new Promise((r) => setTimeout(r, 400));

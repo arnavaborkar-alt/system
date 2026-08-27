@@ -155,7 +155,7 @@ class Store {
           body: JSON.stringify({ state: payload }),
         });
         this.status = r.ok ? 'cloud' : (r.status === 501 ? 'nocloud' : 'offline');
-        if (r.ok) { try { this.standing = (await r.json()).standing; } catch { /* ignore */ } }
+
       } catch { this.status = 'offline'; }
       this.emit();
     };

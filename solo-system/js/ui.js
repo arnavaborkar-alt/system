@@ -510,13 +510,6 @@ function calendarTab() {
 /* ============================================================
    TAB — RANKING
    ============================================================ */
-const FLAG_TEXT = {
-  rate: 'gold climbed faster than the day allows',
-  level: 'level doesn\u2019t match the XP reported',
-  balance: 'holding more gold than was ever earned',
-  spam: 'saves arriving faster than a person taps',
-};
-
 function boardTab() {
   const st = g();
   const b = ui.board;
@@ -532,8 +525,7 @@ function boardTab() {
   const rowFor = (r) => `<div class="brow ${r.me ? 'me' : ''}">
     <span class="place ${r.rank <= 3 ? `p${r.rank}` : ''}">${r.rank}</span>
     <div class="body">
-      <div class="t">${h(r.name)}${r.me ? ' <span class="pill on">you</span>' : ''}
-        ${r.flagged ? '<span class="pill bad" title="unusual activity">\u26a0</span>' : ''}</div>
+      <div class="t">${h(r.name)}${r.me ? ' <span class="pill on">you</span>' : ''}</div>
       <div class="s">
         <span>LV ${r.level}</span>
         ${r.streak ? `<span>${r.streak}d streak</span>` : ''}
@@ -545,13 +537,12 @@ function boardTab() {
     <span class="pay">${Math.round(r.gold ?? 0).toLocaleString()}g</span>
   </div>`;
 
-  const flagged = (b?.rows || []).filter((r) => r.flagged);
 
   return `<div class="wrap">
     <div class="window">
       <div class="window-title">
         <h2>Ranking</h2>
-        <span class="count">${b?.onBoard ?? '\u2014'} hunters${b?.scoring ? ` \u00b7 scoring v${b.scoring}` : ''}</span>
+        <span class="count">${b?.onBoard ?? '\u2014'} hunters</span>
       </div>
       <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. That number can never rise above what the server watched you earn, so a hand-edited save gets you nowhere.</div>
       <div class="grid2">
@@ -561,11 +552,6 @@ function boardTab() {
     </div>
 
     ${b?.error ? `<div class="window"><div class="tiny" style="color:var(--danger)">${h(b.error)}</div></div>` : ''}
-
-    ${b?.rows?.some((r) => r.me && r.v < (b.scoring || 1)) ? `<div class="window">
-      <div class="tiny" style="color:var(--gold)">Your standing was scored by an older version of the server and hasn't been rebuilt yet.
-      That happens when <span class="num">api/state.js</span> is behind <span class="num">api/board.js</span> \u2014 upload it and hit Refresh.</div>
-    </div>` : ''}
 
     ${!mine.optIn ? `<div class="window"><div class="empty">
         <span class="mark">\u25b2</span>You're not on the board.<br>
@@ -578,26 +564,7 @@ function boardTab() {
         <span class="mark">\u25cb</span>Nobody has joined yet.
       </div></div>` : ''}
 
-    ${flagged.length ? `<div class="window">
-      <div class="window-title"><h2>Flagged</h2><span class="count">${flagged.length}</span></div>
-      ${flagged.map((r) => `<div class="row"><div class="body">
-        <div class="t tiny">${h(r.name)}</div>
-        <div class="s">${r.flags.map((f) => h(FLAG_TEXT[f] || f)).join(' \u00b7 ')}</div>
-      </div></div>`).join('')}
-      <div class="tiny muted" style="margin-top:10px">Flags are permanent once raised. They don't remove anyone \u2014 they just show what the server noticed.</div>
-    </div>` : ''}
-
-    <details class="acc"><summary>How cheating is handled</summary><div>
-      <div class="tiny" style="color:var(--ink);line-height:1.55">
-        Everything in this app runs in the browser, so anyone can edit their own save. That can't be prevented \u2014 only made pointless.
-        <br><br>
-        The board shows your current gold, but it never trusts the figure your app sends. The server keeps its own running total of what you've earned and, on each save, credits only what could plausibly have been earned since your last one \u2014 120 gold an hour, 1,500 a day. Your displayed gold is then capped at that verified total minus everything you've spent. Set your save to a million and the board still shows what the server can vouch for, and marks you.
-        <br><br>
-        It also re-derives your level from your XP, and watches for saves arriving faster than a person taps. There's no level ceiling and no gold ceiling \u2014 only a ceiling on how fast either can climb.
-        <br><br>
-        The honest limit: someone patient could still drip small fake gains for weeks. At that point they're doing about as much work as the homework.
-      </div>
-    </div></details>
+    <div class="tiny muted" style="margin-top:4px;padding:0 2px">Nothing here is verified \u2014 everyone's own device reports its own numbers, on the honor system.</div>
   </div>`;
 }
 
@@ -858,6 +825,9 @@ const TABS = [
   ['board', '\u25b2', 'Rank'],
   ['settings', '\u2699', 'System'],
 ];
+// Ranking is built but disabled \u2014 the anti-cheat scoring gave a wrong number
+// on a real account and the cause wasn't nailed down. Flip 'board' back into
+// TABS above to bring the tab back once that's actually fixed.
 
 export function render() {
   const s = g();
@@ -865,10 +835,11 @@ export function render() {
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
   const dueH = E.habitsFor(s, today).filter((x) => !s.habitLog[today]?.[x.id]).length;
 
-  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, board: boardTab, settings: settingsTab }[ui.tab]();
+  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, board: boardTab, settings: settingsTab }[ui.tab] || questsTab;
+  const bodyHtml = typeof body === 'function' ? body() : body;
 
   document.body.classList.toggle('boosted', E.boostFor(s, today) > 1);
-  document.getElementById('app').innerHTML = statusBar() + body;
+  document.getElementById('app').innerHTML = statusBar() + bodyHtml;
   document.getElementById('tabs').innerHTML = TABS.map(([k, ico, label]) => {
     const n = k === 'quests' ? openQ : k === 'habits' ? dueH : 0;
     return `<button class="${ui.tab === k ? 'on' : ''}" data-tab="${k}">
