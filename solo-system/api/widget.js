@@ -24,7 +24,7 @@ function authorized(pass) {
   return list.reduce((hit, k) => (crypto.timingSafeEqual(given, sha(k)) ? true : hit), false);
 }
 
-const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
+const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S+'];
 
 function todayKey(hour = 4) {
   const d = new Date();
@@ -38,7 +38,7 @@ function rankFor(q, s) {
   let score = s.baseScore ?? 2;
   const hits = Object.keys(s.keywordWeights || {}).filter((k) => hay.includes(k)).sort((a, b) => b.length - a.length);
   if (hits.length) score += s.keywordWeights[hits[0]];
-  return RANKS[Math.max(0, Math.min(5, Math.round(score)))];
+  return RANKS[Math.max(0, Math.min(RANKS.length - 1, Math.round(score)))];
 }
 
 module.exports = async (req, res) => {
@@ -81,8 +81,17 @@ module.exports = async (req, res) => {
     });
     const habitsDone = habitsToday.filter((h) => st.habitLog?.[today]?.[h.id]).length;
 
+    const boost = (st.boosts || []).find((b) => b.day === today);
+    let boostEnds = null;
+    if (boost) {
+      const d = new Date(`${tomorrow}T00:00:00Z`);
+      d.setUTCHours(d.getUTCHours() + (s.dayResetHour ?? 4));
+      boostEnds = d.toISOString();
+    }
+
     return res.status(200).json({
       hunter: s.hunterName || 'Hunter',
+      boost: boost ? { mult: boost.mult || 2, endsAt: boostEnds } : null,
       gold: Math.round(st.gold || 0),
       level: st.level || 1,
       dayOff: (st.daysOff || []).includes(today),
