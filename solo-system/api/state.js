@@ -26,6 +26,18 @@ const BOARD_KEY = 'solo-system:board';
 const GOLD_PER_HOUR = 120;
 const BURST_FLOOR = 500;
 const DAILY_CAP = 1500;
+const BASELINE_CAP = 50000;   // ceiling on a first-sighting starting line
+const BOARD_V = 2;            // bump to re-baseline everyone after a scoring change
+
+function normWeek(week) {
+  const w = week || {};
+  return {
+    quests: Math.max(0, Number(w.quests) || 0),
+    sessions: Math.min(7, Math.max(0, Number(w.sessions) || 0)),
+    habits: Math.max(0, Number(w.habits) || 0),
+    habitsDue: Math.max(0, Number(w.habitsDue) || 0),
+  };
+}
 
 function xpForLevel(level) {
   return Math.round(90 * Math.pow(Math.max(0, level - 1), 1.55));
@@ -65,6 +77,34 @@ function scoreEntry(prev, state, now = Date.now()) {
   const flags = new Set();
 
   const claimed = Math.max(0, Number(state.lifetimeEarned) || 0);
+
+  // First time the server sees this hunter there is no history to compare
+  // against, so the save becomes the starting line rather than evidence of
+  // anything. Rate checks begin from the next write on. BOARD_V bumps let a
+  // scoring change re-baseline everyone once instead of flagging them all.
+  if (!prev || prev.v !== BOARD_V) {
+    const base = Math.min(BASELINE_CAP, claimed);
+    const spent0 = Math.max(0, Number(state.lifetimeSpent) || 0);
+    return {
+      v: BOARD_V,
+      slot: e.slot,
+      name: String(state.board?.name || '').slice(0, 18) || 'Hunter',
+      optIn: !!state.board?.optIn,
+      verified: Math.round(base),
+      gold: Math.round(Math.min(Math.max(0, Number(state.gold) || 0), Math.max(0, base - spent0))),
+      spent: spent0,
+      claimed,
+      level: levelFromXp(state.xp),
+      xp: Math.max(0, Number(state.xp) || 0),
+      streak: Math.max(0, Number(state.questStreak) || 0),
+      week: normWeek(state.__week),
+      flags: [],
+      firstSeen: e.firstSeen || now,
+      lastWrite: now,
+      writes: (e.writes || 0) + 1,
+    };
+  }
+
   const elapsedH = e.lastWrite ? Math.max(0, (now - e.lastWrite) / 3.6e6) : 24;
   const allowance = Math.min(DAILY_CAP, Math.max(BURST_FLOOR, elapsedH * GOLD_PER_HOUR));
 
@@ -89,6 +129,7 @@ function scoreEntry(prev, state, now = Date.now()) {
   const keep = new Set([...(e.flags || []), ...flags]);
 
   return {
+    v: BOARD_V,
     slot: e.slot,
     name: String(state.board?.name || '').slice(0, 18) || 'Hunter',
     optIn: !!state.board?.optIn,
@@ -96,12 +137,7 @@ function scoreEntry(prev, state, now = Date.now()) {
     level: trueLevel,
     xp,
     streak: Math.max(0, Number(state.questStreak) || 0),
-    week: {
-      quests: Math.max(0, Number(week.quests) || 0),
-      sessions: Math.min(7, Math.max(0, Number(week.sessions) || 0)),
-      habits: Math.max(0, Number(week.habits) || 0),
-      habitsDue: Math.max(0, Number(week.habitsDue) || 0),
-    },
+    week: normWeek(week),
     flags: [...keep],
     firstSeen: e.firstSeen || now,
     lastWrite: now,
