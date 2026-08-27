@@ -132,6 +132,23 @@ due date, or delete it. Deleting one that came from Schoology keeps a hidden tom
 so the next sync can't put it back; it sits under **Deleted** if you want it returned.
 Manual quests are removed outright.
 
+**Ranking.** Everyone using your link can opt into a shared leaderboard — name, level,
+gold on hand, lifetime earned and weekly activity. It ranks on current gold, so spending
+on a day off does drop you; lifetime earned sits alongside it so the saving is still visible. Quest titles, classes, Schoology links and notes never
+leave your own save. Opt in from the Rank tab; you can leave any time.
+
+The board does not trust the number your app reports. The server keeps its own running
+total and, on each save, credits only what could plausibly have been earned since your
+last one — 120 gold an hour, 1,500 a day maximum. Your displayed gold is then capped at
+that verified total minus everything you've spent, so editing your save to a million
+shows the ceiling instead and raises a permanent flag everyone can see. The server also
+re-derives your level from your XP and watches for saves arriving faster than a person
+taps.
+
+This is deterrence, not prevention. The app runs in a browser, so a patient person could
+still drip small fake gains over weeks — at which point it's more effort than the
+homework. Tuning lives at the top of `api/_board.js`.
+
 **Clearing out a backlog.** Joining a course mid-year dumps its whole past into your
 list. When five or more quests are dated before today, a banner offers **Clear them
 out** — pick a date, choose whether to include already-cleared ones, and they're gone.
@@ -139,12 +156,18 @@ It also sets the sync cutoff to that date so Schoology can't hand them back. For
 specific ones, hit **Select**, tap the rows you want, and delete them together. The
 cutoff is editable any time under System → Schoology.
 
-**Ranks.** Every quest gets E through S from words in its title — "final exam" scores
+**Ranks.** Every quest gets E through S+ from words in its title — "final exam" scores
 high, "reading" scores low, AP and Honors classes get a bump. Tap the rank chip on any
 quest to override it; a gold dot marks the ones you've set yourself. All the keyword
 weights are editable in **System → Gold & difficulty**.
 
-**Gold.** E 10 · D 25 · C 45 · B 80 · A 140 · S 240. Finishing more than a day early
+**Gold.** E 10 · D 25 · C 45 · B 80 · A 140 · S 240 · S+ 400. S+ is reserved for
+things like a final exam in an AP class; ordinary homework can't reach it.
+
+**No ceilings.** There's no maximum level and no maximum gold. Levels keep going past
+100 with new titles (National Level Hunter, Shadow Monarch, Monarch of Destruction,
+Ruler of Ash, Sovereign). The only limit anywhere is how fast the leaderboard will
+credit gold — which affects the board, not your save. Finishing more than a day early
 adds 15%. Finishing late costs 40%. A daily streak adds 3% per day up to 45%. Letting
 a quest expire costs 30 gold, and skipping a habit costs whatever penalty that habit
 carries.
@@ -164,6 +187,13 @@ thresholds and the whole 30-day plan are editable in **System → Gym plan**.
 passes, the summer plan takes over — barbell work with double progression instead of
 bodyweight variations. Edit either plan any time, or force a season with the
 auto / school / summer switch.
+
+**Double gold & XP (1,200).** Everything you clear that day pays twice — quests,
+training and habits alike. The whole interface turns violet while it runs and a countdown
+sits at the top; the home screen widget shows the same. It can't be stacked with a day
+off in either direction, since doubling a day where nothing counts would be wasted gold.
+Five-day cooldown, and it can be booked for a future date — worth lining up against a
+week with a couple of tests in it.
 
 **Shop.** Priced so a day off costs roughly a week and a half of staying consistent,
 and a vacation week costs about two months. Each item also has a cooldown so you
@@ -185,6 +215,8 @@ js/engine.js            scoring, gold math, progression, rollover
 js/ui.js                rendering
 js/main.js              actions and wiring
 api/state.js            cloud read/write
+api/board.js            leaderboard read (scoring rules live in state.js + board.js)
+
 api/ics.js              Schoology feed fetch + parse
 api/widget.js           widget data
 widget-scriptable.js    the iOS widget
