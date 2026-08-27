@@ -132,23 +132,6 @@ due date, or delete it. Deleting one that came from Schoology keeps a hidden tom
 so the next sync can't put it back; it sits under **Deleted** if you want it returned.
 Manual quests are removed outright.
 
-**Ranking.** Everyone using your link can opt into a shared leaderboard — name, level,
-gold on hand, lifetime earned and weekly activity. It ranks on current gold, so spending
-on a day off does drop you; lifetime earned sits alongside it so the saving is still visible. Quest titles, classes, Schoology links and notes never
-leave your own save. Opt in from the Rank tab; you can leave any time.
-
-The board does not trust the number your app reports. The server keeps its own running
-total and, on each save, credits only what could plausibly have been earned since your
-last one — 120 gold an hour, 1,500 a day maximum. Your displayed gold is then capped at
-that verified total minus everything you've spent, so editing your save to a million
-shows the ceiling instead and raises a permanent flag everyone can see. The server also
-re-derives your level from your XP and watches for saves arriving faster than a person
-taps.
-
-This is deterrence, not prevention. The app runs in a browser, so a patient person could
-still drip small fake gains over weeks — at which point it's more effort than the
-homework. Tuning lives at the top of `api/_board.js`.
-
 **Clearing out a backlog.** Joining a course mid-year dumps its whole past into your
 list. When five or more quests are dated before today, a banner offers **Clear them
 out** — pick a date, choose whether to include already-cleared ones, and they're gone.
@@ -194,6 +177,13 @@ sits at the top; the home screen widget shows the same. It can't be stacked with
 off in either direction, since doubling a day where nothing counts would be wasted gold.
 Five-day cooldown, and it can be booked for a future date — worth lining up against a
 week with a couple of tests in it.
+
+**Ranking.** Everyone on your link can opt in from the Rank tab — name, level, gold on
+hand, streak, and this week's quests and training. It's honor system: each save mirrors
+its own numbers to a shared board, unverified. Nothing enforces that a save is honest,
+so it's only worth turning on with people you actually trust not to edit their own file.
+Quest titles, classes, Schoology links and notes never leave your own save regardless —
+only the aggregate numbers above ever reach the board. Join or leave any time; leaving hides your row from everyone else's board immediately.
 
 **Shop.** Priced so a day off costs roughly a week and a half of staying consistent,
 and a vacation week costs about two months. Each item also has a cooldown so you
