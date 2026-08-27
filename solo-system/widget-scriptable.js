@@ -25,7 +25,7 @@ const MUTED = new Color('#6E82AC');
 const FAINT = new Color('#46577C');
 const DANGER = new Color('#FB5E7E');
 
-const RANK_COLOR = { E: MUTED, D: new Color('#4FA3D1'), C: MANA, B: GLOW, A: new Color('#A78BFA'), S: GOLD };
+const RANK_COLOR = { E: MUTED, D: new Color('#4FA3D1'), C: MANA, B: GLOW, A: new Color('#A78BFA'), S: GOLD, 'S+': new Color('#FF9E4A') };
 
 async function load() {
   const req = new Request(`${SITE}/api/widget?key=${encodeURIComponent(KEY)}`);
@@ -60,8 +60,25 @@ function errorWidget(msg) {
   return w;
 }
 
+const BOOST = new Color('#B98CFF');
+
+function timeLeft(iso) {
+  const ms = new Date(iso) - new Date();
+  if (ms <= 0) return null;
+  const h = Math.floor(ms / 3.6e6);
+  const m = Math.floor((ms % 3.6e6) / 6e4);
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
 function build(d, size) {
   const w = shell();
+
+  if (d.boost) {
+    const grad = new LinearGradient();
+    grad.colors = [new Color('#1D1338'), VOID];
+    grad.locations = [0, 1];
+    w.backgroundGradient = grad;
+  }
 
   // ---- top line: level, name, gold ----
   const head = w.addStack();
@@ -76,8 +93,18 @@ function build(d, size) {
   w.addSpacer(3);
   const rule = w.addStack();
   rule.size = new Size(0, 1);
-  rule.backgroundColor = new Color('#1B2C55');
+  rule.backgroundColor = d.boost ? BOOST : new Color('#1B2C55');
   w.addSpacer(8);
+
+  if (d.boost) {
+    const bl = w.addStack();
+    bl.centerAlignContent();
+    label(bl, `\u2726 ${d.boost.mult}\u00d7 GOLD & XP`, 9.5, BOOST, true);
+    bl.addSpacer();
+    const left = d.boost.endsAt ? timeLeft(d.boost.endsAt) : null;
+    if (left) label(bl, `${left} left`, 9.5, BOOST);
+    w.addSpacer(7);
+  }
 
   if (d.dayOff) {
     label(w, 'DAY OFF', 9, GOLD, true);
@@ -139,6 +166,7 @@ try {
   widget = errorWidget(`Cannot reach the System. Check SITE and KEY.\n${e.message}`);
 }
 
+// tick faster while a boost is counting down
 widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
 
 if (config.runsInWidget) Script.setWidget(widget);
