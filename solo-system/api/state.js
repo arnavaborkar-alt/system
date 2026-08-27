@@ -19,136 +19,6 @@ const crypto = require('crypto');
 
 const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
-/* ---------- shared board logic (inlined deliberately: no cross-file imports
-     inside /api, so nothing depends on Vercel's helper-file conventions) ---------- */
-
-const BOARD_KEY = 'solo-system:board';
-const GOLD_PER_HOUR = 120;
-const BURST_FLOOR = 500;
-const DAILY_CAP = 1500;
-const BASELINE_CAP = 50000;   // ceiling on a first-sighting starting line
-const BOARD_V = 2;            // bump to re-baseline everyone after a scoring change
-
-function normWeek(week) {
-  const w = week || {};
-  return {
-    quests: Math.max(0, Number(w.quests) || 0),
-    sessions: Math.min(7, Math.max(0, Number(w.sessions) || 0)),
-    habits: Math.max(0, Number(w.habits) || 0),
-    habitsDue: Math.max(0, Number(w.habitsDue) || 0),
-  };
-}
-
-function xpForLevel(level) {
-  return Math.round(90 * Math.pow(Math.max(0, level - 1), 1.55));
-}
-function levelFromXp(xp) {
-  const x = Math.max(0, Number(xp) || 0);
-  if (!isFinite(x) || x < xpForLevel(2)) return 1;
-  let l = Math.floor(Math.pow(x / 90, 1 / 1.55)) + 1;
-  if (!isFinite(l) || l < 1) return 1;
-  while (l > 1 && xpForLevel(l) > x) l--;
-  while (xpForLevel(l + 1) <= x) l++;
-  return l;
-}
-
-async function readBoard(URL_, TOKEN) {
-  try {
-    const r = await fetch(`${URL_}/get/${encodeURIComponent(BOARD_KEY)}`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
-    });
-    if (!r.ok) return {};
-    const j = await r.json();
-    return j.result ? JSON.parse(j.result) : {};
-  } catch { return {}; }
-}
-
-async function writeBoard(URL_, TOKEN, board) {
-  await fetch(`${URL_}/set/${encodeURIComponent(BOARD_KEY)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'content-type': 'text/plain' },
-    body: JSON.stringify(board),
-  });
-}
-
-/** Fold one save into the board. Never trusts the numbers the browser sends. */
-function scoreEntry(prev, state, now = Date.now()) {
-  const e = prev || { verified: 0, claimed: 0, flags: [], firstSeen: now, writes: 0 };
-  const flags = new Set();
-
-  const claimed = Math.max(0, Number(state.lifetimeEarned) || 0);
-
-  // A baseline is warranted whenever there's no meaningful history to compare
-  // against yet: a brand-new entry, a version bump, OR an entry whose own first
-  // save was itself degenerate (claimed dropped to ~0 while gold sat well above
-  // it \u2014 the signature of a save written before the client's own counters
-  // were populated). Re-baselining in that last case costs nothing: a cheater
-  // gains one baseline no matter how many times they trigger it, since the
-  // baseline is a snapshot of *current* claimed gold, not a bonus on top.
-  const degenerate = prev && prev.writes <= 1 && prev.claimed < 5 && claimed > BURST_FLOOR;
-  if (!prev || prev.v !== BOARD_V || degenerate) {
-    const base = Math.min(BASELINE_CAP, claimed);
-    const spent0 = Math.max(0, Number(state.lifetimeSpent) || 0);
-    return {
-      v: BOARD_V,
-      slot: e.slot,
-      name: String(state.board?.name || '').slice(0, 18) || 'Hunter',
-      optIn: !!state.board?.optIn,
-      verified: Math.round(base),
-      gold: Math.round(Math.min(Math.max(0, Number(state.gold) || 0), Math.max(0, base - spent0))),
-      spent: spent0,
-      claimed,
-      level: levelFromXp(state.xp),
-      xp: Math.max(0, Number(state.xp) || 0),
-      streak: Math.max(0, Number(state.questStreak) || 0),
-      week: normWeek(state.__week),
-      flags: [],
-      firstSeen: e.firstSeen || now,
-      lastWrite: now,
-      writes: (e.writes || 0) + 1,
-    };
-  }
-
-  const elapsedH = e.lastWrite ? Math.max(0, (now - e.lastWrite) / 3.6e6) : 24;
-  const allowance = Math.min(DAILY_CAP, Math.max(BURST_FLOOR, elapsedH * GOLD_PER_HOUR));
-
-  let delta = claimed - (e.claimed || 0);
-  if (!isFinite(delta) || delta < 0) delta = 0;
-  if (delta > allowance) { flags.add('rate'); delta = allowance; }
-
-  const xp = Math.max(0, Number(state.xp) || 0);
-  const trueLevel = levelFromXp(xp);
-  if ((Number(state.level) || 1) > trueLevel + 1) flags.add('level');
-
-  const verified = Math.round((e.verified || 0) + delta);
-  const spent = Math.max(0, Number(state.lifetimeSpent) || 0);
-  const ceiling = Math.max(0, verified - spent);
-  const claimedGold = Math.max(0, Number(state.gold) || 0);
-  if (claimedGold > ceiling + 1) flags.add('balance');
-  const gold = Math.min(claimedGold, ceiling);
-
-  if (e.lastWrite && now - e.lastWrite < 400) flags.add('spam');
-
-  const week = state.__week || {};
-  const keep = new Set([...(e.flags || []), ...flags]);
-
-  return {
-    v: BOARD_V,
-    slot: e.slot,
-    name: String(state.board?.name || '').slice(0, 18) || 'Hunter',
-    optIn: !!state.board?.optIn,
-    verified, gold, spent, claimed,
-    level: trueLevel,
-    xp,
-    streak: Math.max(0, Number(state.questStreak) || 0),
-    week: normWeek(week),
-    flags: [...keep],
-    firstSeen: e.firstSeen || now,
-    lastWrite: now,
-    writes: (e.writes || 0) + 1,
-  };
-}
-
 const LEGACY_KEY = 'solo-system:state';   // from before multi-hunter support
 
 const sha = (v) => crypto.createHash('sha256').update(String(v)).digest();
@@ -171,6 +41,24 @@ function authorized(pass) {
   if (list.length === 1 && list[0].toLowerCase() === 'open') return pass.length >= 12;
   const given = sha(pass);
   return list.reduce((hit, k) => (crypto.timingSafeEqual(given, sha(k)) ? true : hit), false);
+}
+
+async function readBoard() {
+  try {
+    const r = await fetch(`${URL_}/get/${encodeURIComponent('solo-system:board')}`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    if (!r.ok) return {};
+    const j = await r.json();
+    return j.result ? JSON.parse(j.result) : {};
+  } catch { return {}; }
+}
+async function writeBoard(board) {
+  await fetch(`${URL_}/set/${encodeURIComponent('solo-system:board')}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${TOKEN}`, 'content-type': 'text/plain' },
+    body: JSON.stringify(board),
+  });
 }
 
 async function kvGet(key) {
@@ -230,19 +118,26 @@ module.exports = async (req, res) => {
       if (!body || !body.state) return res.status(400).json({ error: 'No state in request.' });
       await kvSet(slot, body.state);
 
-      // scoring never blocks the save — a board hiccup must not cost someone their data
-      let standing = null;
+      // mirror the board-relevant fields into the shared board record, verbatim —
+      // no scoring, no verification, no flags. A board hiccup must never cost
+      // someone their save, hence the try/catch.
       try {
-        const board = await readBoard(URL_, TOKEN);
+        const board = await readBoard();
         const id = slot.split(':').pop();
-        const entry = scoreEntry(board[id], body.state);
-        entry.slot = id;
-        board[id] = entry;
-        await writeBoard(URL_, TOKEN, board);
-        standing = { verified: entry.verified, flags: entry.flags };
+        board[id] = {
+          slot: id,
+          name: String(body.state.board?.name || '').slice(0, 18) || 'Hunter',
+          optIn: !!body.state.board?.optIn,
+          level: Math.max(1, Number(body.state.level) || 1),
+          gold: Math.max(0, Number(body.state.gold) || 0),
+          streak: Math.max(0, Number(body.state.questStreak) || 0),
+          week: body.state.__week || {},
+          lastWrite: Date.now(),
+        };
+        await writeBoard(board);
       } catch { /* ignore */ }
 
-      return res.status(200).json({ ok: true, standing });
+      return res.status(200).json({ ok: true });
     }
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Method not allowed.' });
