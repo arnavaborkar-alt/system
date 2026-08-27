@@ -551,7 +551,7 @@ function boardTab() {
     <div class="window">
       <div class="window-title">
         <h2>Ranking</h2>
-        <span class="count">${b?.onBoard ?? '\u2014'} hunters</span>
+        <span class="count">${b?.onBoard ?? '\u2014'} hunters${b?.scoring ? ` \u00b7 scoring v${b.scoring}` : ''}</span>
       </div>
       <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. That number can never rise above what the server watched you earn, so a hand-edited save gets you nowhere.</div>
       <div class="grid2">
