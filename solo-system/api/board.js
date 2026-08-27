@@ -169,6 +169,7 @@ module.exports = async (req, res) => {
       .map((e) => ({
         id: e.slot,
         me: e.slot === me,
+        v: e.v || 1,
         name: e.name || 'Hunter',
         level: e.level || 1,
         gold: e.gold || 0,
