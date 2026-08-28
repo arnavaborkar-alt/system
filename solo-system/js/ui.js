@@ -189,7 +189,7 @@ function questsTab() {
 
   const body = (buckets.overdue.length + buckets.today.length + buckets.soon.length + buckets.later.length) === 0
     ? `<div class="window"><div class="empty"><span class="mark">\u25c7</span>
-        No open quests.<br><span class="tiny">${s.settings.icsUrl ? 'Pull to sync, or add one by hand.' : 'Add your Schoology link in Settings to load them automatically.'}</span></div></div>`
+        No open quests.<br><span class="tiny">${s.settings.icsUrl || s.settings.todoistToken ? 'Pull to sync, or add one by hand.' : 'Add Schoology or Todoist in Settings to load quests automatically.'}</span></div></div>`
     : section('Overdue', buckets.overdue) + section('Due today', buckets.today)
       + section('This week', buckets.soon) + section('Later', buckets.later);
 
@@ -203,7 +203,12 @@ function questsTab() {
         <button class="sm ghost" data-act="select-mode">Done</button>
       </div>`
     : `<div style="display:flex;gap:8px;margin-bottom:14px">
-        <button style="flex:1" data-act="sync">${s.settings.icsUrl ? 'Sync Schoology' : 'Add calendar link'}</button>
+        <button style="flex:1" data-act="sync">${
+          s.settings.icsUrl && s.settings.todoistToken ? 'Sync Schoology + Todoist'
+          : s.settings.icsUrl ? 'Sync Schoology'
+          : s.settings.todoistToken ? 'Sync Todoist'
+          : 'Add a calendar source'
+        }</button>
         <button data-act="add-quest">+ Quest</button>
         ${open.length ? '<button data-act="select-mode">Select</button>' : ''}
       </div>`}
@@ -223,7 +228,7 @@ function questsTab() {
         <button class="sm ghost" data-act="undo-quest" data-id="${h(q.id)}">Undo</button></div>`).join('')}
     </div></details>` : ''}
     ${dismissed.length ? `<details class="acc"><summary>Deleted (${dismissed.length})</summary><div>
-      <div class="tiny muted" style="margin-bottom:8px">Kept only so Schoology can\u2019t re-add them on the next sync.</div>
+      <div class="tiny muted" style="margin-bottom:8px">Kept only so Schoology or Todoist can\u2019t re-add them on the next sync.</div>
       ${dismissed.map((q) => `<div class="row"><div class="body"><div class="t tiny muted">${h(q.title)}</div>
         <div class="s">${h(q.course || '')}</div></div>
         <button class="sm ghost" data-act="restore-quest" data-id="${h(q.id)}">Restore</button></div>`).join('')}
@@ -651,9 +656,15 @@ function settingsTab() {
       <div class="tiny muted" style="margin-bottom:12px">In Schoology: your name \u2192 Settings \u2192 Share Your Schoology Calendar \u2192 Enable \u2192 copy the link. It only appears once your calendar has at least one item on it.</div>
       ${T('Auto-sync every (hours)', 'autoSyncHours', 'number', 'min="1" max="48"')}
       ${T('Ignore anything due before', 'ignoreBefore', 'date')}
-      <div class="tiny muted" style="margin:-8px 0 12px">Stops old back-work appearing when you join a course mid-year. Leave blank to import everything.</div>
+      <div class="tiny muted" style="margin:-8px 0 12px">Stops old back-work appearing when you join a course mid-year. Leave blank to import everything. This cutoff applies to Todoist too.</div>
       <div class="field"><label>Skip anything containing</label>
         <input data-set="ignoreKeywords" value="${h((st.ignoreKeywords || []).join(', '))}" placeholder="no school, assembly"></div>
+      <button data-act="sync">Sync now</button>
+    </div></details>
+
+    <details class="acc" ${ui.open === 'todoist' ? 'open' : ''}><summary>Todoist</summary><div>
+      ${T('Personal API token', 'todoistToken', 'password', 'placeholder="paste your token"')}
+      <div class="tiny muted" style="margin-bottom:12px">In Todoist: Settings \u2192 Integrations \u2192 Developer \u2192 copy the API token. Runs alongside Schoology \u2014 tasks from both land in the same quest list, and the same ignore rules and cutoff above apply to both.</div>
       <button data-act="sync">Sync now</button>
     </div></details>
 

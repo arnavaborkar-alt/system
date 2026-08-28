@@ -28,6 +28,7 @@ export function scoreQuest(quest, settings) {
     if (course && hay.includes(course.toLowerCase())) { score += cw[course]; break; }
   }
   if (/\bap\b|honors|honours|\bib\b/.test(hay)) score += 1;
+  if (quest.priority >= 4) score += 1;   // Todoist's own "urgent" flag
 
   return RANKS[Math.max(0, Math.min(RANKS.length - 1, Math.round(score)))];
 }

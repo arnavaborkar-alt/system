@@ -18,14 +18,68 @@ const shiftM = (ym, n) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
+let syncingTodoist = false;
+async function syncTodoist(quiet = false) {
+  const s = g();
+  if (!s.settings.todoistToken) return;   // silent when not configured; the button covers both sources
+  if (syncingTodoist) return;
+  syncingTodoist = true;
+  if (!quiet) notify('', 'System', 'Pulling from Todoist\u2026');
+
+  try {
+    const r = await fetch('/api/todoist', { headers: { 'x-todoist-token': s.settings.todoistToken } });
+    const body = await r.json();
+    if (!r.ok) { notify('bad', 'Todoist sync failed', body.error || `Error ${r.status}`); return; }
+
+    const ignore = (s.settings.ignoreKeywords || []).map((x) => x.toLowerCase()).filter(Boolean);
+    let added = 0;
+
+    store.update((st) => {
+      const cutoff = st.settings.ignoreBefore || '';
+      let skipped = 0;
+
+      body.events.forEach((ev) => {
+        const hay = `${ev.title} ${ev.course}`.toLowerCase();
+        if (ignore.some((k) => hay.includes(k))) return;
+        if (cutoff && ev.due && localDay(ev.due) < cutoff) { skipped++; return; }
+        const id = `td:${ev.uid}`;
+        const existing = st.quests[id];
+        if (existing?.dismissed) return;
+        if (existing) {
+          existing.title = ev.title;
+          existing.course = ev.course || existing.course;
+          existing.due = ev.due || existing.due;
+          existing.dueKey = ev.due ? localDay(ev.due) : existing.dueKey;
+          existing.notes = ev.notes;
+          existing.priority = ev.priority;
+          if (existing.missed && existing.dueKey >= tk()) existing.missed = false;
+        } else {
+          st.quests[id] = {
+            id, source: 'todoist',
+            title: ev.title, course: ev.course, notes: ev.notes,
+            due: ev.due, dueKey: ev.due ? localDay(ev.due) : null, allDay: ev.allDay,
+            priority: ev.priority,
+            done: false, missed: false, addedAt: new Date().toISOString(),
+          };
+          added++;
+        }
+      });
+      st.lastTodoistSync = new Date().toISOString();
+    });
+
+    if (!quiet) notify(added ? 'gold' : '', 'Todoist synced', added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new');
+  } catch (e) {
+    notify('bad', 'Todoist sync failed', e.message);
+  } finally {
+    syncingTodoist = false;
+    render();
+  }
+}
+
 let syncing = false;
 async function syncSchoology(quiet = false) {
   const s = g();
-  if (!s.settings.icsUrl) {
-    ui.tab = 'settings'; ui.open = 'schoology'; render();
-    if (!quiet) notify('', 'System', 'Add your Schoology iCal link below.');
-    return;
-  }
+  if (!s.settings.icsUrl) return;   // silent when not configured; the button covers both sources
   if (syncing) return;
   syncing = true;
   if (!quiet) notify('', 'System', 'Pulling from Schoology\u2026');
@@ -91,7 +145,15 @@ function bumpQuestStreak(st) {
 }
 
 const actions = {
-  sync: () => syncSchoology(),
+  sync() {
+    const s = g();
+    if (!s.settings.icsUrl && !s.settings.todoistToken) {
+      ui.tab = 'settings'; ui.open = 'schoology'; render();
+      notify('', 'System', 'Add a Schoology link or Todoist token below.');
+      return;
+    }
+    syncSchoology(); syncTodoist();
+  },
 
   'finish-quest'(el) {
     const id = el.dataset.id;
@@ -137,9 +199,11 @@ const actions = {
   async 'open-quest'(el) {
     const q = g().quests[el.dataset.id];
     if (!q) return;
-    const fromSchoology = q.source === 'schoology';
+    const SOURCE_LABEL = { schoology: 'Schoology', todoist: 'Todoist' };
+    const synced = q.source === 'schoology' || q.source === 'todoist';
+    const sourceName = SOURCE_LABEL[q.source] || '';
     const v = await dialog({
-      title: fromSchoology ? 'Quest \u00b7 from Schoology' : 'Quest',
+      title: synced ? `Quest \u00b7 from ${sourceName}` : 'Quest',
       confirm: 'Save',
       third: 'Delete quest',
       fields: [
@@ -153,13 +217,13 @@ const actions = {
     if (v.__third) {
       const sure = await dialog({
         title: 'Delete quest', danger: true, confirm: 'Delete',
-        message: fromSchoology
-          ? `"${q.title}" disappears from your list. Schoology won't put it back.`
+        message: synced
+          ? `"${q.title}" disappears from your list. ${sourceName} won't put it back.`
           : `"${q.title}" is gone for good.`,
       });
       if (!sure) return;
       store.update((st) => {
-        if (fromSchoology) st.quests[q.id].dismissed = true;   // tombstone, so sync skips it
+        if (synced) st.quests[q.id].dismissed = true;   // tombstone, so sync skips it
         else delete st.quests[q.id];
       });
       notify('bad', 'Deleted', q.title);
@@ -267,7 +331,7 @@ const actions = {
       ids.forEach((id) => {
         const q = st.quests[id];
         if (!q) return;
-        if (q.source === 'schoology') q.dismissed = true; else delete st.quests[id];
+        if (q.source === 'schoology' || q.source === 'todoist') q.dismissed = true; else delete st.quests[id];
       });
     });
     ui.selected = new Set();
@@ -699,6 +763,10 @@ async function boot() {
   if (s.settings.icsUrl) {
     const hrs = s.lastSync ? (Date.now() - Date.parse(s.lastSync)) / 3.6e6 : 999;
     if (hrs >= (s.settings.autoSyncHours || 6)) syncSchoology(true);
+  }
+  if (s.settings.todoistToken) {
+    const hrs = s.lastTodoistSync ? (Date.now() - Date.parse(s.lastTodoistSync)) / 3.6e6 : 999;
+    if (hrs >= (s.settings.autoSyncHours || 6)) syncTodoist(true);
   }
 
   // re-check the date when the app comes back to the foreground

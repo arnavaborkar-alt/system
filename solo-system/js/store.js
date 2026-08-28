@@ -42,6 +42,7 @@ export function freshState() {
     habitSkips: 0,
     cycleHistory: [],
     lastSync: null,
+    lastTodoistSync: null,
     board: { optIn: false, name: '' },
     createdAt: new Date().toISOString(),
   };
