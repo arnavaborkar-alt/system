@@ -88,6 +88,31 @@ After the first sync it re-checks every 6 hours on its own.
 
 ---
 
+## 3b. Connect Todoist (2 min, optional)
+
+Useful on its own, and useful as a workaround if Schoology or this app's own URL is
+blocked on a school Chromebook but Todoist isn't — put your assignments in Todoist
+from any device and they'll still land in your quest list here.
+
+1. In Todoist: **Settings → Integrations → Developer**.
+2. Copy the **API token** shown there.
+3. In the app: **System → Todoist** → paste it → **Sync now**.
+
+Each Todoist project becomes a "class" the same way a Schoology course does, and task
+titles become quest titles. Mark a task **Priority 1** (the red flag, Todoist's own
+"urgent") to give it the same difficulty bump an AP or Honors class gets.
+
+Schoology and Todoist run side by side — the same **Sync** button pulls both, and they
+share the same ignore-keywords list and the same "ignore anything before this date"
+cutoff in Settings. Deleting a quest that came from either source keeps it from coming
+back on the next sync, same as Schoology.
+
+This token grants Todoist write access to your account, so treat it like a password —
+don't share it, and if you ever need to revoke it, generate a new one from the same
+Todoist settings page; the old one stops working immediately.
+
+---
+
 ## 4. Home screen icon (1 min)
 
 Open your Vercel URL **in Safari** (not Chrome — iOS only allows this from Safari).
@@ -140,7 +165,8 @@ specific ones, hit **Select**, tap the rows you want, and delete them together. 
 cutoff is editable any time under System → Schoology.
 
 **Ranks.** Every quest gets E through S+ from words in its title — "final exam" scores
-high, "reading" scores low, AP and Honors classes get a bump. Tap the rank chip on any
+high, "reading" scores low, AP and Honors classes get a bump, and a task marked
+**Priority 1** in Todoist gets the same bump. Tap the rank chip on any
 quest to override it; a gold dot marks the ones you've set yourself. All the keyword
 weights are editable in **System → Gold & difficulty**.
 
@@ -208,6 +234,7 @@ api/state.js            cloud read/write
 api/board.js            leaderboard read (scoring rules live in state.js + board.js)
 
 api/ics.js              Schoology feed fetch + parse
+api/todoist.js          Todoist task fetch + normalize
 api/widget.js           widget data
 widget-scriptable.js    the iOS widget
 sw.js                   offline shell cache
