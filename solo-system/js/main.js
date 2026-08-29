@@ -33,10 +33,10 @@ async function syncTodoist(quiet = false) {
 
     const ignore = (s.settings.ignoreKeywords || []).map((x) => x.toLowerCase()).filter(Boolean);
     let added = 0;
+    let skipped = 0;
 
     store.update((st) => {
       const cutoff = st.settings.ignoreBefore || '';
-      let skipped = 0;
 
       body.events.forEach((ev) => {
         const hay = `${ev.title} ${ev.course}`.toLowerCase();
@@ -67,7 +67,8 @@ async function syncTodoist(quiet = false) {
       st.lastTodoistSync = new Date().toISOString();
     });
 
-    if (!quiet) notify(added ? 'gold' : '', 'Todoist synced', added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new');
+    if (!quiet) notify(added ? 'gold' : '', 'Todoist synced',
+      `${added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new'}${skipped ? ` \u00b7 ${skipped} old skipped` : ''}`);
   } catch (e) {
     notify('bad', 'Todoist sync failed', e.message);
   } finally {
@@ -91,10 +92,10 @@ async function syncSchoology(quiet = false) {
 
     const ignore = (s.settings.ignoreKeywords || []).map((x) => x.toLowerCase()).filter(Boolean);
     let added = 0;
+    let skipped = 0;
 
     store.update((st) => {
       const cutoff = s.settings.ignoreBefore || '';
-      let skipped = 0;
 
       body.events.forEach((ev) => {
         const hay = `${ev.title} ${ev.course}`.toLowerCase();
