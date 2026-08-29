@@ -31,6 +31,13 @@ async function syncTodoist(quiet = false) {
     const body = await r.json();
     if (!r.ok) { notify('bad', 'Todoist sync failed', body.error || `Error ${r.status}`); return; }
 
+    const priorIds = new Set(
+      Object.values(s.quests)
+        .filter((q) => q.source === 'todoist' && !q.dismissed && !q.done && !q.missed)
+        .map((q) => q.id.slice(3))   // strip the "td:" prefix to compare against raw uids
+    );
+    const rawIds = new Set(body.events.map((ev) => ev.uid));
+
     const ignore = (s.settings.ignoreKeywords || []).map((x) => x.toLowerCase()).filter(Boolean);
     let added = 0;
     let skipped = 0;
@@ -67,6 +74,51 @@ async function syncTodoist(quiet = false) {
       st.lastTodoistSync = new Date().toISOString();
     });
 
+    // Anything that was open, is ours, and Todoist's raw feed no longer
+    // mentions at all (not filtered out by our own ignore rules — genuinely
+    // gone from their side) needs a real answer: checked off, or deleted.
+    // The list endpoint can't say which, so ask about each one directly.
+    const vanished = [...priorIds].filter((uid) => !rawIds.has(uid));
+    if (vanished.length) {
+      try {
+        const cr = await fetch(`/api/todoist?check=${encodeURIComponent(vanished.slice(0, 25).join(','))}`, {
+          headers: { 'x-todoist-token': s.settings.todoistToken },
+        });
+        const cbody = await cr.json();
+        if (cr.ok && cbody.results) {
+          let completedCount = 0;
+          let deletedCount = 0;
+          store.update((st) => {
+            Object.entries(cbody.results).forEach(([uid, status]) => {
+              const id = `td:${uid}`;
+              const q = st.quests[id];
+              if (!q || q.done || q.dismissed) return;
+              if (status === 'deleted') {
+                delete st.quests[id];
+                deletedCount++;
+              } else if (status === 'completed') {
+                const reward = E.questReward(q, st.settings, st.questStreak || 0, tk(), st);
+                q.done = true; q.missed = false; q.doneAt = new Date().toISOString();
+                q.paid = reward.gold; q.paidRank = reward.rank;
+                E.pay(st, reward.gold, `Quest: ${q.title}`);
+                E.grantXp(st, reward.xp);
+                E.grantStat(st, 'INT', 1);
+                bumpQuestStreak(st);
+                completedCount++;
+              }
+              // 'active' or 'unknown' — leave it, try again next sync
+            });
+          });
+          if (completedCount || deletedCount) {
+            const parts = [];
+            if (completedCount) parts.push(`${completedCount} checked off in Todoist`);
+            if (deletedCount) parts.push(`${deletedCount} deleted in Todoist`);
+            notify(completedCount ? 'gold' : '', 'Todoist matched', parts.join(', '));
+          }
+        }
+      } catch { /* the sync itself already succeeded; a reconciliation hiccup isn't worth surfacing */ }
+    }
+
     if (!quiet) notify(added ? 'gold' : '', 'Todoist synced',
       `${added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new'}${skipped ? ` \u00b7 ${skipped} old skipped` : ''}`);
   } catch (e) {
@@ -89,6 +141,13 @@ async function syncSchoology(quiet = false) {
     const r = await fetch(`/api/ics?url=${encodeURIComponent(s.settings.icsUrl)}`);
     const body = await r.json();
     if (!r.ok) { notify('bad', 'Sync failed', body.error || `Error ${r.status}`); return; }
+
+    const priorIds = new Set(
+      Object.values(s.quests)
+        .filter((q) => q.source === 'schoology' && !q.dismissed && !q.done && !q.missed)
+        .map((q) => q.id.slice(4))   // strip the "ics:" prefix
+    );
+    const rawIds = new Set(body.events.map((ev) => ev.uid));
 
     const ignore = (s.settings.ignoreKeywords || []).map((x) => x.toLowerCase()).filter(Boolean);
     let added = 0;
@@ -124,6 +183,17 @@ async function syncSchoology(quiet = false) {
       });
       st.lastSync = new Date().toISOString();
     });
+
+    // Unlike Todoist, there's no per-item lookup that can tell "deleted" apart
+    // from "just aged out of the calendar's export window" — Schoology's ICS
+    // feed has no completed state at all, and some feeds only cover the
+    // current term. Guessing wrong here means silently deleting a real
+    // assignment, so this only surfaces a count for you to check yourself
+    // with Select, rather than acting on it.
+    const vanished = [...priorIds].filter((uid) => !rawIds.has(uid));
+    if (vanished.length) {
+      notify('', 'Schoology', `${vanished.length} quest${vanished.length === 1 ? '' : 's'} no longer on the calendar \u2014 check with Select if any should go.`);
+    }
 
     notify(added ? 'gold' : '', 'Sync complete',
       `${added ? `${added} new quest${added === 1 ? '' : 's'}` : 'Nothing new'}${skipped ? ` \u00b7 ${skipped} old skipped` : ''}`);
