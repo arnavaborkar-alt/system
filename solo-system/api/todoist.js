@@ -71,6 +71,28 @@ module.exports = async (req, res) => {
 
   const auth = { headers: { Authorization: `Bearer ${token}` } };
 
+  // ---- status check branch: resolve a handful of task IDs that vanished
+  // from the active list into 'deleted' | 'completed' | 'unknown'. A plain
+  // list endpoint only ever returns open tasks, so a task that disappears
+  // could mean either — fetching it directly by ID tells them apart: a 404
+  // means it's actually gone, a 200 with is_completed true means it was
+  // checked off. ----
+  const checkParam = req.query?.check || new URL(req.url, 'http://x').searchParams.get('check');
+  if (checkParam) {
+    const ids = checkParam.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 25);
+    const results = {};
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const r = await fetch(`${BASE}/tasks/${encodeURIComponent(id)}`, auth);
+        if (r.status === 404) { results[id] = 'deleted'; return; }
+        if (!r.ok) { results[id] = 'unknown'; return; }
+        const body = await r.json();
+        results[id] = (body.is_completed === true || body.checked === true) ? 'completed' : 'active';
+      } catch { results[id] = 'unknown'; }
+    }));
+    return res.status(200).json({ results });
+  }
+
   try {
     const taskPage = await fetchAllPages('/tasks', auth);
 
