@@ -107,6 +107,20 @@ share the same ignore-keywords list and the same "ignore anything before this da
 cutoff in Settings. Deleting a quest that came from either source keeps it from coming
 back on the next sync, same as Schoology.
 
+**Deleting or checking off a task in Todoist itself** carries over automatically.
+Todoist's task list only ever shows open tasks, so when something drops off it, the app
+looks that one task up directly to find out what actually happened: a 404 means it's
+genuinely gone and the quest is removed; a completed task is marked done here too, gold
+and all. If Todoist's own lookup fails for some reason, the quest is just left alone
+until the next sync tries again — nothing gets guessed at.
+
+Schoology can't offer the same guarantee. An ICS calendar has no "completed" concept at
+all, and some schools only export the current term, so a vanished item might mean it
+was deleted, or it might just mean it aged out of the feed's date window. Since guessing
+wrong there means silently deleting a real assignment, the app doesn't auto-act on it —
+instead it tells you how many quests fell off the Schoology feed and leaves the call to
+you, via **Select**.
+
 This token grants Todoist write access to your account, so treat it like a password —
 don't share it, and if you ever need to revoke it, generate a new one from the same
 Todoist settings page; the old one stops working immediately.
