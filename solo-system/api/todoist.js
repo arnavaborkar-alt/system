@@ -6,10 +6,19 @@
  * to the same shape /api/ics returns, so the client can merge both sources
  * with one code path.
  *
+ * Todoist retired the old /rest/v2/ endpoints in February 2026 in favor of a
+ * single unified /api/v1/ API. The task and project object fields (content,
+ * project_id, due, priority, description) are unchanged — only the base URL
+ * and the fact that list endpoints now come back cursor-paginated rather than
+ * as a bare array.
+ *
  * The token travels as a header, never a query string, since Vercel logs
  * query strings and a Todoist token grants write access to the account —
  * more sensitive than a Schoology calendar link.
  */
+
+const BASE = 'https://api.todoist.com/api/v1';
+const MAX_PAGES = 10;   // a personal account's open tasks fit in far fewer than this
 
 function projectMap(projects) {
   const m = {};
@@ -26,6 +35,34 @@ function normalizeDue(due) {
   return { due: null, allDay: false };
 }
 
+/** The old API returned a bare array; the new one wraps it as { results, next_cursor }.
+ *  Accept either shape so a future change on Todoist's side degrades gracefully
+ *  instead of silently returning zero tasks. */
+function itemsOf(body) {
+  if (Array.isArray(body)) return { items: body, cursor: null };
+  if (Array.isArray(body?.results)) return { items: body.results, cursor: body.next_cursor || null };
+  if (Array.isArray(body?.data)) return { items: body.data, cursor: body.next_cursor || null };
+  return { items: [], cursor: null };
+}
+
+/** Follows cursor pagination until Todoist stops sending one, capped so a
+ *  misbehaving response can't loop forever. */
+async function fetchAllPages(path, auth) {
+  let all = [];
+  let cursor = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = cursor ? `${BASE}${path}?cursor=${encodeURIComponent(cursor)}` : `${BASE}${path}`;
+    const r = await fetch(url, auth);
+    if (!r.ok) return { ok: false, status: r.status };
+    const body = await r.json();
+    const { items, cursor: next } = itemsOf(body);
+    all = all.concat(items);
+    if (!next) return { ok: true, items: all };
+    cursor = next;
+  }
+  return { ok: true, items: all };   // stopped at the page cap rather than looping forever
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
 
@@ -35,23 +72,22 @@ module.exports = async (req, res) => {
   const auth = { headers: { Authorization: `Bearer ${token}` } };
 
   try {
-    const [taskRes, projRes] = await Promise.all([
-      fetch('https://api.todoist.com/rest/v2/tasks', auth),
-      fetch('https://api.todoist.com/rest/v2/projects', auth),
-    ]);
+    const taskPage = await fetchAllPages('/tasks', auth);
 
-    if (taskRes.status === 401 || taskRes.status === 403) {
+    if (taskPage.status === 401 || taskPage.status === 403) {
       return res.status(401).json({ error: 'Todoist rejected that token. Copy a fresh one from Settings \u2192 Integrations \u2192 Developer.' });
     }
-    if (!taskRes.ok) {
-      return res.status(502).json({ error: `Todoist returned ${taskRes.status}.` });
+    if (taskPage.status === 410) {
+      return res.status(502).json({ error: 'Todoist has retired this API endpoint again. This app needs an update \u2014 let whoever set it up know.' });
+    }
+    if (!taskPage.ok) {
+      return res.status(502).json({ error: `Todoist returned ${taskPage.status}.` });
     }
 
-    const tasks = await taskRes.json();
-    const projects = projRes.ok ? await projRes.json() : [];
-    const projects_ = projectMap(projects);
+    const projPage = await fetchAllPages('/projects', auth);
+    const projects_ = projectMap(projPage.ok ? projPage.items : []);
 
-    const events = tasks.map((t) => {
+    const events = taskPage.items.map((t) => {
       const { due, allDay } = normalizeDue(t.due);
       return {
         uid: `${t.id}`,
