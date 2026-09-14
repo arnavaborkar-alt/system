@@ -2,7 +2,12 @@ import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL, rankClass } from './config.js';
 import * as E from './engine.js';
 
-export const ui = { tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null, selecting: false, selected: new Set(), board: null, boardLoading: false };
+export const ui = {
+  tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null,
+  selecting: false, selected: new Set(), board: null, boardLoading: false,
+  showWelcome: false, welcomeMode: 'choose', welcomeError: '', welcomeBusy: false,
+  tutorialOpen: false, tutorialStep: 0,
+};
 
 /* ---------- helpers ---------- */
 const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -639,6 +644,7 @@ function settingsTab() {
     <div class="tiny muted" style="margin-top:8px">${STATS.map((k) => `${k} = ${STAT_LABEL[k]}`).join(' \u00b7 ')}</div>`;
 
   return `<div class="wrap">
+    <button class="ghost" style="width:100%;margin-bottom:14px" data-act="tutorial-replay">Replay tutorial</button>
     <div class="window"><div class="window-title"><h2>Status</h2></div>${statBlock}</div>
 
     <details class="acc" ${ui.open === 'hunter' ? 'open' : ''}><summary>Hunter</summary><div>
@@ -762,6 +768,18 @@ function settingsTab() {
       <button class="danger" style="width:100%;margin-top:10px" data-act="wipe">Erase everything</button>
     </div></details>
 
+    <details class="acc" ${ui.open === 'calendar-export' ? 'open' : ''}><summary>Export to another calendar</summary><div>
+      <div class="tiny muted" style="margin-bottom:12px">A read-only feed of your open quest due dates, for subscribing to in Google Calendar, Apple Calendar, or anywhere else. This link can only ever show due dates \u2014 it can\u2019t read your gold or change anything, and it\u2019s separate from your hunter key, so it\u2019s fine to paste into another app.</div>
+      ${!store.key ? `<div class="tiny" style="color:var(--gold)">Connect your hunter key above first \u2014 this feed is built from your saved data.</div>`
+        : !s.settings.calendarToken ? `<button data-act="cal-generate">Create calendar link</button>`
+        : `<div class="field"><label>Your link</label>
+             <input readonly value="${h(window.location.origin)}/api/calendar?key=${h(s.settings.calendarToken)}" onclick="this.select()"></div>
+           <div class="grid2">
+             <button data-act="cal-copy">Copy link</button>
+             <button class="danger" data-act="cal-revoke">Replace link</button>
+           </div>`}
+    </div></details>
+
     <div class="foot">SYSTEM \u00b7 ${h(s.settings.hunterName || 'Hunter')} \u00b7 since ${new Date(s.createdAt).toLocaleDateString()}</div>
   </div>`;
 }
@@ -838,7 +856,93 @@ const TABS = [
 // on a real account and the cause wasn't nailed down. Flip 'board' back into
 // TABS above to bring the tab back once that's actually fixed.
 
+/* ============================================================
+   WELCOME / SIGNUP — shown once, before a brand-new visitor
+   has ever loaded anything locally
+   ============================================================ */
+export function welcomeScreen() {
+  const err = ui.welcomeError ? `<div class="tiny" style="color:var(--danger);margin-bottom:12px">${h(ui.welcomeError)}</div>` : '';
+
+  if (ui.welcomeMode === 'signup') {
+    return `<div class="wrap" style="padding-top:calc(env(safe-area-inset-top) + 24px)">
+      <div class="window">
+        <div class="window-title"><h2>Create a hunter</h2></div>
+        ${err}
+        <div class="field"><label>Name</label><input id="wf-name" placeholder="What should we call you"></div>
+        <div class="field"><label>Email</label><input id="wf-email" type="email" placeholder="you@example.com"></div>
+        <div class="tiny muted" style="margin:-8px 0 12px">Used to send you a welcome email and, later, notifications. It never unlocks your account \u2014 only your passphrase does.</div>
+        <div class="field"><label>Passphrase (12+ characters)</label><input id="wf-pass" type="password" placeholder="something only you know"></div>
+        <div class="field"><label>Confirm passphrase</label><input id="wf-pass2" type="password"></div>
+        <div class="tiny muted" style="margin:-8px 0 14px">There's no way to recover this if you lose it \u2014 write it down somewhere.</div>
+        <button style="width:100%" data-act="welcome-signup" ${ui.welcomeBusy ? 'disabled' : ''}>${ui.welcomeBusy ? 'Creating\u2026' : 'Create hunter'}</button>
+        <button class="ghost" style="width:100%;margin-top:8px" data-act="welcome-mode" data-mode="choose">Back</button>
+      </div>
+    </div>`;
+  }
+
+  if (ui.welcomeMode === 'existing') {
+    return `<div class="wrap" style="padding-top:calc(env(safe-area-inset-top) + 24px)">
+      <div class="window">
+        <div class="window-title"><h2>Sign in</h2></div>
+        ${err}
+        <div class="field"><label>Your passphrase</label><input id="wf-existing-key" type="password" placeholder="the one you were given"></div>
+        <button style="width:100%" data-act="welcome-existing">Continue</button>
+        <button class="ghost" style="width:100%;margin-top:8px" data-act="welcome-mode" data-mode="choose">Back</button>
+        <div class="tiny muted" style="margin-top:14px">Rather look around first? <span data-act="welcome-existing" style="text-decoration:underline;cursor:pointer">Continue with no account</span> \u2014 you can connect one later in Settings.</div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="wrap" style="padding-top:calc(env(safe-area-inset-top) + 40px)">
+    <div class="window" style="text-align:center">
+      <div class="eyebrow">System</div>
+      <h2 style="font-size:22px;margin:8px 0 4px">Welcome, Hunter</h2>
+      <p class="tiny muted" style="margin-bottom:20px">Quests pay gold. Gold buys days off. Training gets harder as you do.</p>
+      <button style="width:100%" class="gold" data-act="welcome-mode" data-mode="signup">Create a hunter</button>
+      <button class="ghost" style="width:100%;margin-top:10px" data-act="welcome-mode" data-mode="existing">I already have a passphrase</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   TUTORIAL — walks through setup, replayable any time from Settings
+   ============================================================ */
+export const TUTORIAL_STEPS = [
+  { title: 'How this works', body: 'Quests pay gold when you clear them \u2014 harder work pays more. Gold buys things in the Shop, like a day off when you\u2019ve earned it. Training and habits pay too, and everything levels you up.' },
+  { title: 'Connect Schoology', body: 'System \u2192 Schoology \u2192 paste your Schoology iCal link \u2192 Sync now. Your assignments show up as quests automatically, ranked by difficulty.', goto: { tab: 'settings', open: 'schoology' } },
+  { title: 'Connect Todoist', body: 'System \u2192 Todoist \u2192 paste your personal API token \u2192 Sync now. Works alongside Schoology \u2014 one Sync button pulls both.', goto: { tab: 'settings', open: 'todoist' } },
+  { title: 'Set up your gym plan', body: 'The Gym tab runs a 30-day training cycle that gets harder on its own as you clear sessions. Edit the exercises any time in System \u2192 Gym plan.', goto: { tab: 'gym' } },
+  { title: 'Set up your habits', body: 'The Habits tab is for recurring things \u2014 chores, routines, anything on a schedule. Add one with System \u2192 Habits \u2192 + Habit.', goto: { tab: 'habits' } },
+  { title: 'Where everything lives', body: 'Quests: what\u2019s due. Month: a calendar view of all of it. Gym and Habits: your training and routines. Shop: spend your gold. Rank: see how you compare to friends. System: every setting.' },
+];
+
+export function tutorialOverlay() {
+  document.querySelector('.tutorial-overlay')?.remove();
+  const step = TUTORIAL_STEPS[ui.tutorialStep];
+  if (step.goto) { ui.tab = step.goto.tab; ui.open = step.goto.open || null; render(); }
+  const last = ui.tutorialStep === TUTORIAL_STEPS.length - 1;
+  const el = document.createElement('div');
+  el.className = 'levelup tutorial-overlay';
+  el.innerHTML = `<div class="card" style="text-align:left;max-width:380px">
+    <div class="eyebrow">Step ${ui.tutorialStep + 1} of ${TUTORIAL_STEPS.length}</div>
+    <h3 style="margin:10px 0 8px;font-size:18px">${h(step.title)}</h3>
+    <p style="font-size:14.5px;color:var(--ink);line-height:1.55;margin:0 0 18px">${h(step.body)}</p>
+    <div class="grid2">
+      <button class="ghost" data-act="tutorial-skip">Skip</button>
+      <button class="gold" data-act="${last ? 'tutorial-finish' : 'tutorial-next'}">${last ? 'Finish' : 'Next'}</button>
+    </div>
+    ${ui.tutorialStep > 0 ? '<button class="ghost" style="width:100%;margin-top:8px" data-act="tutorial-back">Back</button>' : ''}
+  </div>`;
+  document.body.appendChild(el);
+}
+
 export function render() {
+  if (ui.showWelcome) {
+    document.getElementById('app').innerHTML = welcomeScreen();
+    document.getElementById('tabs').innerHTML = '';
+    return;
+  }
+
   const s = g();
   const today = tk();
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;

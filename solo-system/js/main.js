@@ -1,7 +1,7 @@
 import { store, todayKey, addDays, dateKey } from './store.js';
 import { RANKS } from './config.js';
 import * as E from './engine.js';
-import { ui, render, notify, levelUpWindow, dialog } from './ui.js';
+import { ui, render, notify, levelUpWindow, dialog, tutorialOverlay } from './ui.js';
 
 const g = () => store.state;
 const tk = () => todayKey(g().settings);
@@ -353,6 +353,33 @@ const actions = {
     render();
   },
 
+  async 'cal-generate'() {
+    if (!store.key) return notify('bad', 'System', 'Connect your hunter key under Sync & data first \u2014 the calendar feed needs cloud storage to look anything up from.');
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    store.update((st) => { st.settings.calendarToken = token; });
+    await store.save({ immediate: true });
+    notify('', 'Calendar link ready', 'Copy it into your calendar app\u2019s "subscribe by URL"');
+    ui.open = 'calendar-export'; render();
+  },
+
+  'cal-copy'() {
+    const url = `${window.location.origin}/api/calendar?key=${g().settings.calendarToken}`;
+    navigator.clipboard?.writeText(url).then(
+      () => notify('', 'Copied', 'Calendar link copied'),
+      () => notify('bad', 'Copy failed', 'Select and copy the link manually'),
+    );
+  },
+
+  async 'cal-revoke'() {
+    const v = await dialog({
+      title: 'Replace calendar link', danger: true, confirm: 'Replace',
+      message: 'The current link stops working immediately. Anything subscribed to it will need the new one.',
+    });
+    if (!v) return;
+    await actions['cal-generate']();
+  },
+
   async 'board-join'() {
     const st = g();
     const v = await dialog({
@@ -571,6 +598,58 @@ const actions = {
 
   /* ---- settings ---- */
   'save-key'() { store.setKey($('#hkey').value); store.load().then(render); notify('', 'System', 'Connecting\u2026'); },
+
+  'welcome-mode'(el) { ui.welcomeMode = el.dataset.mode; ui.welcomeError = ''; render(); },
+
+  async 'welcome-signup'() {
+    const name = $('#wf-name')?.value.trim() || '';
+    const email = $('#wf-email')?.value.trim() || '';
+    const pass = $('#wf-pass')?.value || '';
+    const pass2 = $('#wf-pass2')?.value || '';
+
+    if (pass.length < 12) { ui.welcomeError = 'Passphrase needs to be at least 12 characters.'; return render(); }
+    if (pass !== pass2) { ui.welcomeError = 'Those two passphrases don\u2019t match.'; return render(); }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ui.welcomeError = 'That doesn\u2019t look like a valid email.'; return render(); }
+
+    ui.welcomeBusy = true; ui.welcomeError = ''; render();
+    try {
+      const r = await fetch('/api/signup', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, email, passphrase: pass }),
+      });
+      const body = await r.json();
+      if (!r.ok) { ui.welcomeBusy = false; ui.welcomeError = body.error || `Error ${r.status}`; return render(); }
+
+      store.setKey(pass);
+      await store.load();
+      store.update((st) => { st.settings.onboarded = false; });
+      await store.save({ immediate: true });
+
+      ui.welcomeBusy = false; ui.showWelcome = false;
+      notify(body.emailSent ? '' : 'bad', 'Welcome', body.emailSent ? 'Check your email' : 'Account created (welcome email didn\u2019t go out, but you\u2019re all set)');
+      await bootContinue();
+    } catch (e) {
+      ui.welcomeBusy = false; ui.welcomeError = e.message; render();
+    }
+  },
+
+  'welcome-existing'() {
+    const key = $('#wf-existing-key')?.value.trim() || '';
+    ui.showWelcome = false;
+    if (key) { store.setKey(key); store.load().then(bootContinue); notify('', 'System', 'Connecting\u2026'); }
+    else bootContinue();
+  },
+
+  'tutorial-next'() { ui.tutorialStep++; tutorialOverlay(); },
+  'tutorial-back'() { ui.tutorialStep = Math.max(0, ui.tutorialStep - 1); tutorialOverlay(); },
+  'tutorial-skip'() { ui.tutorialOpen = false; store.update((st) => { st.settings.onboarded = true; }); document.querySelector('.tutorial-overlay')?.remove(); },
+  'tutorial-finish'() {
+    ui.tutorialOpen = false;
+    store.update((st) => { st.settings.onboarded = true; });
+    document.querySelector('.tutorial-overlay')?.remove();
+    notify('gold', 'You\u2019re set', 'Good luck out there');
+  },
+  'tutorial-replay'() { ui.tutorialStep = 0; ui.tutorialOpen = true; tutorialOverlay(); },
   export() {
     const blob = new Blob([store.export()], { type: 'application/json' });
     const a = document.createElement('a');
@@ -816,13 +895,22 @@ document.addEventListener('change', (ev) => {
 /* ============================================================
    BOOT
    ============================================================ */
-async function boot() {
+export async function boot() {
   store.weekStats = (st) => E.weekStats(st);
-  await store.load();
 
+  const brandNew = !localStorage.getItem('solo-system-v1');
+  if (brandNew) { ui.showWelcome = true; render(); return; }   // bootContinue runs once they pick a path
+
+  await store.load();
+  await bootContinue();
+}
+
+async function bootContinue() {
   const events = [];
   store.update((st) => { events.push(...E.rollover(st)); });
   render();
+
+  if (!g().settings.onboarded) { ui.tutorialStep = 0; ui.tutorialOpen = true; tutorialOverlay(); }
 
   events.slice(0, 4).forEach((e, i) => setTimeout(() => {
     notify(e.type === 'penalty' ? 'bad' : e.type === 'cycle' ? 'gold' : '',
