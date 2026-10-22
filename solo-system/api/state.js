@@ -23,6 +23,11 @@ const LEGACY_KEY = 'solo-system:state';   // from before multi-hunter support
 
 const sha = (v) => crypto.createHash('sha256').update(String(v)).digest();
 
+/** Where the calendar-feed token points back to a save slot. */
+function calKey(token) {
+  return `solo-system:cal:${sha(token).toString('hex').slice(0, 24)}`;
+}
+
 /** Storage slot for a passphrase. The passphrase itself is never stored. */
 function slotFor(pass) {
   return `solo-system:state:${sha(pass).toString('hex').slice(0, 24)}`;
@@ -41,24 +46,6 @@ function authorized(pass) {
   if (list.length === 1 && list[0].toLowerCase() === 'open') return pass.length >= 12;
   const given = sha(pass);
   return list.reduce((hit, k) => (crypto.timingSafeEqual(given, sha(k)) ? true : hit), false);
-}
-
-async function readBoard() {
-  try {
-    const r = await fetch(`${URL_}/get/${encodeURIComponent('solo-system:board')}`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
-    });
-    if (!r.ok) return {};
-    const j = await r.json();
-    return j.result ? JSON.parse(j.result) : {};
-  } catch { return {}; }
-}
-async function writeBoard(board) {
-  await fetch(`${URL_}/set/${encodeURIComponent('solo-system:board')}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'content-type': 'text/plain' },
-    body: JSON.stringify(board),
-  });
 }
 
 async function kvGet(key) {
@@ -118,24 +105,13 @@ module.exports = async (req, res) => {
       if (!body || !body.state) return res.status(400).json({ error: 'No state in request.' });
       await kvSet(slot, body.state);
 
-      // mirror the board-relevant fields into the shared board record, verbatim —
-      // no scoring, no verification, no flags. A board hiccup must never cost
-      // someone their save, hence the try/catch.
+      // Index the calendar-feed token so /api/calendar can find this save from the
+      // token alone. The feed re-checks the token against the save itself, so a
+      // replaced token stops working even though its index entry lingers.
       try {
-        const board = await readBoard();
-        const id = slot.split(':').pop();
-        board[id] = {
-          slot: id,
-          name: String(body.state.board?.name || '').slice(0, 18) || 'Hunter',
-          optIn: !!body.state.board?.optIn,
-          level: Math.max(1, Number(body.state.level) || 1),
-          gold: Math.max(0, Number(body.state.gold) || 0),
-          streak: Math.max(0, Number(body.state.questStreak) || 0),
-          week: body.state.__week || {},
-          lastWrite: Date.now(),
-        };
-        await writeBoard(board);
-      } catch { /* ignore */ }
+        const tok = body.state.settings?.calendarToken;
+        if (typeof tok === 'string' && /^[a-f0-9]{20,64}$/.test(tok)) await kvSet(calKey(tok), slot);
+      } catch { /* the save itself already succeeded */ }
 
       return res.status(200).json({ ok: true });
     }

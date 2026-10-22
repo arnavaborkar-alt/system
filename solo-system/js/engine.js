@@ -1,5 +1,5 @@
 import { RANKS, xpForLevel, levelForXp, HUNTER_RANK_BY_LEVEL, STATS } from './config.js';
-import { todayKey, addDays, daysBetween, dueDay } from './store.js';
+import { todayKey, dateKey, addDays, daysBetween, dueDay } from './store.js';
 
 /* ============================================================
    DIFFICULTY
@@ -38,8 +38,13 @@ export function rankOf(quest, settings) {
 }
 
 /* ============================================================
-   GOLD
+   GOLD & XP
    ============================================================ */
+/** Every XP source goes through this so one setting rescales all of them. */
+export function scaleXp(settings, n) {
+  return Math.round(n * (settings?.xpScale ?? 1));
+}
+
 export function questReward(quest, settings, streak, whenKey, state = null) {
   const rank = rankOf(quest, settings);
   const base = settings.goldByRank[rank] ?? 25;
@@ -53,16 +58,26 @@ export function questReward(quest, settings, streak, whenKey, state = null) {
     else if (diff === 0) pct += settings.onTimeBonusPct;
     else pct -= settings.latePenaltyPct;
   }
-  pct += Math.min(settings.streakBonusMaxPct, streak * settings.streakBonusPct);
+  const streakPct = Math.min(settings.streakBonusMaxPct, streak * settings.streakBonusPct);
+  pct += streakPct;
 
   const mult = state ? boostFor(state, whenKey) : 1;
   return {
     rank,
     gold: Math.max(1, Math.round(base * (1 + pct / 100) * mult)),
-    xp: Math.round(xp * mult),
+    // a streak is worth half as much on XP as on gold, and being late never costs XP
+    xp: scaleXp(settings, xp * (1 + streakPct / 200) * mult),
     bonusPct: Math.round(pct),
     mult,
   };
+}
+
+/** XP for clearing a training session / a habit on a given day. */
+export function gymXp(state, key) {
+  return scaleXp(state.settings, (state.settings.gym.goldPerSession / 3) * boostFor(state, key));
+}
+export function habitXp(state, habit, key) {
+  return Math.max(1, scaleXp(state.settings, (habit.gold / 4) * boostFor(state, key)));
 }
 
 /* ============================================================
@@ -96,12 +111,32 @@ export function pay(state, delta, reason) {
   if (state.ledger.length > 400) state.ledger.length = 400;
 }
 
-export function grantXp(state, amount) {
+function logXp(state, amount, key) {
+  state.xpLog = state.xpLog || {};
+  const k = key || todayKey(state.settings);
+  state.xpLog[k] = Math.max(0, (state.xpLog[k] || 0) + amount);
+}
+
+/** Returns the new level if this crossed a level boundary, otherwise null. */
+export function grantXp(state, amount, key) {
   const before = levelFromXp(state.xp);
   state.xp += amount;
   const after = levelFromXp(state.xp);
   state.level = after;
+  logXp(state, amount, key);
   return after > before ? after : null;
+}
+
+/** Takes XP back (undo). Never drops below zero. */
+export function revokeXp(state, amount) {
+  const take = Math.min(state.xp, Math.max(0, amount));
+  state.xp -= take;
+  state.level = levelFromXp(state.xp);
+  logXp(state, -take);
+}
+
+export function xpToday(state) {
+  return Math.round(state.xpLog?.[todayKey(state.settings)] || 0);
 }
 
 /* ============================================================
@@ -197,7 +232,7 @@ export function prescribedFor(state, key = todayKey(state.settings)) {
         weighted: !!ladder?.weighted,
         weightLb: e.weightLb ?? 0,
         atTop: reps >= rung.hi,
-        range: `${rung.lo}\u2013${rung.hi}`,
+        range: `${rung.lo}–${rung.hi}`,
       };
     }),
   };
@@ -231,6 +266,30 @@ export function dayDetail(state, key) {
   };
 }
 
+/** How much of a day's scheduled work is cleared. A "perfect" day pays a bonus. */
+export function dayStatus(state, key) {
+  const habits = habitsFor(state, key);
+  const log = state.habitLog[key] || {};
+  const habitsDone = habits.filter((h) => log[h.id] !== undefined && log[h.id] !== false).length;
+
+  const quests = Object.values(state.quests).filter((q) => !q.dismissed && dueDay(q) === key);
+  const questsDone = quests.filter((q) => q.done && (!q.doneAt || dateKey(new Date(q.doneAt)) <= key)).length;
+
+  const training = planForDate(state, key);
+  const gymScheduled = !!training?.exercises.length && !isGymRest(state, key);
+  const gymDone = !!state.gymLog[key]?.done;
+
+  const items = habits.length + quests.length + (gymScheduled ? 1 : 0);
+  const done = habitsDone + questsDone + (gymScheduled && gymDone ? 1 : 0);
+  const min = state.settings.perfectDayMinItems ?? 3;
+  return {
+    items, done, habits: habits.length, habitsDone,
+    quests: quests.length, questsDone, gymScheduled, gymDone,
+    eligible: items >= min && !isDayOff(state, key),
+    perfect: items >= min && done === items && !isDayOff(state, key),
+  };
+}
+
 /** How much of the last cycle did they actually clear, per ladder? */
 export function cycleCompletion(state, startKey, len) {
   const planKey = activePlanKey(state);
@@ -253,6 +312,9 @@ export function cycleCompletion(state, startKey, len) {
   }
   return tally;
 }
+
+/** Timed holds move in bigger steps than rep counts, or +2 seconds a month is meaningless. */
+const STEP_BY_UNIT = { sec: 5, min: 2 };
 
 /** Advance every exercise in the active plan by one cycle's worth of progress. */
 export function progressPlan(state, startKey) {
@@ -285,6 +347,7 @@ export function progressPlan(state, startKey) {
         changes.push({ slot, name: rung.name, rate: Math.round(rate), result: 'held' });
         return;
       }
+      step *= STEP_BY_UNIT[rung.unit] || 1;
 
       let reps = (e.reps ?? rung.lo) + step;
       let weight = e.weightLb ?? 0;
@@ -314,8 +377,8 @@ export function progressPlan(state, startKey) {
       const after = ladder.rungs[rungIdx];
       changes.push({
         slot, rate: Math.round(rate), result: 'progressed',
-        from: `${before.reps}\u00d7 ${before.name}${before.weight ? ` @${before.weight}lb` : ''}`,
-        to: `${reps}\u00d7 ${after.name}${weight ? ` @${weight}lb` : ''}`,
+        from: `${before.reps}× ${before.name}${before.weight ? ` @${before.weight}lb` : ''}`,
+        to: `${reps}× ${after.name}${weight ? ` @${weight}lb` : ''}`,
       });
     });
   }
@@ -325,8 +388,9 @@ export function progressPlan(state, startKey) {
 /* ============================================================
    DAILY ROLLOVER
    Applies missed-quest and missed-habit penalties for any day
-   that has fully passed and hasn't been settled yet.
-   Also advances the gym cycle when 30 days elapse.
+   that has fully passed and hasn't been settled yet, and pays the
+   perfect-day bonus for days where everything got cleared.
+   Also advances the gym cycle when a cycle's worth of days elapse.
    ============================================================ */
 export function rollover(state) {
   const s = state.settings;
@@ -343,40 +407,66 @@ export function rollover(state) {
   state.gymRestDays = state.gymRestDays || [];
   state.habitSkips = state.habitSkips || 0;
   state.penaltiesApplied = state.penaltiesApplied || {};
+  state.xpLog = state.xpLog || {};
+
+  // The level curve can change between versions. Level is always derived from XP,
+  // so re-derive it here and tell the hunter if they just moved up.
+  const derived = levelFromXp(state.xp || 0);
+  if (derived !== state.level) {
+    const up = derived > (state.level || 1);
+    state.level = derived;
+    if (up) events.push({ type: 'levelup', level: derived, text: `Level ${derived}` });
+  }
 
   // --- settle past days ---
   const startFrom = state.lastRollover || (state.createdAt ? state.createdAt.slice(0, 10) : today);
   let cursor = startFrom;
   let guard = 0;
   while (cursor < today && guard++ < 400) {
-    if (!state.penaltiesApplied[cursor] && s.penaltiesEnabled && !isDayOff(state, cursor)) {
-      // habits
-      habitsFor(state, cursor).forEach((h) => {
-        const done = state.habitLog[cursor]?.[h.id];
-        if (done === undefined || done === false) {
-          if (h.penalty) { pay(state, -h.penalty, `Missed: ${h.name}`); events.push({ type: 'penalty', text: `${h.name} \u2014 \u2212${h.penalty}g` }); }
-          state.habitStreaks[h.id] = 0;
-        }
-      });
-      // quests that were due that day and never cleared
-      Object.values(state.quests).forEach((q) => {
-        if (q.done || q.missed || q.dismissed) return;
-        if (dueDay(q) !== cursor) return;
-        q.missed = true;
-        if (s.missedQuestPenalty) {
-          pay(state, -s.missedQuestPenalty, `Missed quest: ${q.title}`);
-          events.push({ type: 'penalty', text: `${q.title} \u2014 \u2212${s.missedQuestPenalty}g` });
-        }
-      });
+    if (!state.penaltiesApplied[cursor]) {
+      // judge the day before the penalties below start marking things missed
+      const status = dayStatus(state, cursor);
+
+      if (s.penaltiesEnabled && !isDayOff(state, cursor)) {
+        // habits
+        habitsFor(state, cursor).forEach((h) => {
+          const done = state.habitLog[cursor]?.[h.id];
+          if (done === undefined || done === false) {
+            if (h.penalty) { pay(state, -h.penalty, `Missed: ${h.name}`); events.push({ type: 'penalty', text: `${h.name} — −${h.penalty}g` }); }
+            state.habitStreaks[h.id] = 0;
+          }
+        });
+        // quests that were due that day and never cleared
+        Object.values(state.quests).forEach((q) => {
+          if (q.done || q.missed || q.dismissed) return;
+          if (dueDay(q) !== cursor) return;
+          q.missed = true;
+          if (s.missedQuestPenalty) {
+            pay(state, -s.missedQuestPenalty, `Missed quest: ${q.title}`);
+            events.push({ type: 'penalty', text: `${q.title} — −${s.missedQuestPenalty}g` });
+          }
+        });
+      }
+
+      if (status.perfect && (s.perfectDayXp || s.perfectDayGold)) {
+        const xp = scaleXp(s, s.perfectDayXp || 0);
+        const gold = s.perfectDayGold || 0;
+        if (gold) pay(state, gold, `Perfect day ${cursor}`);
+        const lv = xp ? grantXp(state, xp, cursor) : null;
+        events.push({ type: 'perfect', text: `Perfect day — +${xp} XP${gold ? `, +${gold}g` : ''}` });
+        if (lv) events.push({ type: 'levelup', level: lv, text: `Level ${lv}` });
+      }
     }
     state.penaltiesApplied[cursor] = true;
     cursor = addDays(cursor, 1);
   }
   state.lastRollover = today;
 
-  // keep the map small
+  // keep the maps small
   const cutoff = addDays(today, -120);
   Object.keys(state.penaltiesApplied).forEach((k) => { if (k < cutoff) delete state.penaltiesApplied[k]; });
+  const xpCut = addDays(today, -60);
+  Object.keys(state.xpLog).forEach((k) => { if (k < xpCut) delete state.xpLog[k]; });
 
   // --- gym cycle advance ---
   const { cyclesPassed } = cyclePosition(state, today);
@@ -389,7 +479,7 @@ export function rollover(state) {
       state.cycleHistory = state.cycleHistory || [];
       state.cycleHistory.unshift({ index: state.cycle.index - 1, startKey, changes, at: new Date().toISOString() });
       if (state.cycleHistory.length > 24) state.cycleHistory.length = 24;
-      events.push({ type: 'cycle', text: `Cycle ${state.cycle.index - 1} complete \u2014 difficulty raised`, changes });
+      events.push({ type: 'cycle', text: `Cycle ${state.cycle.index - 1} complete — difficulty raised`, changes });
     }
     state.cycle.startDate = addDays(state.cycle.startDate, cyclesPassed * len);
   }
@@ -404,23 +494,6 @@ export function rollover(state) {
   }
 
   return events;
-}
-
-/** Rolling 7-day activity, for the leaderboard. */
-export function weekStats(state) {
-  const today = todayKey(state.settings);
-  let quests = 0, sessions = 0, habits = 0, habitsDue = 0;
-  for (let i = 0; i < 7; i++) {
-    const k = addDays(today, -i);
-    if (state.gymLog[k]?.done) sessions++;
-    const due = habitsFor(state, k);
-    habitsDue += due.length;
-    habits += due.filter((hb) => state.habitLog[k]?.[hb.id] !== undefined).length;
-  }
-  Object.values(state.quests).forEach((q) => {
-    if (q.done && q.doneAt && daysBetween(q.doneAt.slice(0, 10), today) <= 7) quests++;
-  });
-  return { quests, sessions, habits, habitsDue };
 }
 
 /* ============================================================
@@ -466,7 +539,7 @@ export function buy(state, item, startKey) {
   if (item.grants?.type === 'boost') {
     for (let i = 0; i < (item.grants.days || 1); i++) {
       if (isDayOff(state, addDays(from, i))) {
-        return { ok: false, why: "That's a day off \u2014 there'd be nothing to double." };
+        return { ok: false, why: "That's a day off — there'd be nothing to double." };
       }
     }
   }

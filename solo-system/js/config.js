@@ -30,6 +30,10 @@ export const DEFAULT_SETTINGS = {
 
   // ---- XP paid per rank ----
   xpByRank: { E: 6, D: 12, C: 22, B: 40, A: 70, S: 120, 'S+': 200 },
+  xpScale: 1.5,             // multiplies every XP source (quests, training, habits)
+  perfectDayXp: 60,         // bonus XP for a day where everything scheduled got cleared
+  perfectDayGold: 50,
+  perfectDayMinItems: 3,    // a day needs at least this many scheduled things to count
 
   // ---- Bonuses & penalties (multipliers / flat gold) ----
   earlyBonusPct: 15,        // finished >24h before due
@@ -80,8 +84,8 @@ export const DEFAULT_SETTINGS = {
 /* ============================================================
    LEVEL CURVE — total XP required to reach each level
    ============================================================ */
-export const XP_BASE = 90;
-export const XP_CURVE = 1.55;
+export const XP_BASE = 55;
+export const XP_CURVE = 1.5;
 
 export function xpForLevel(level) {
   // Level 1 must sit at 0 XP, or the progress readout goes negative
@@ -103,16 +107,16 @@ export function levelForXp(xp) {
 
 export const HUNTER_RANK_BY_LEVEL = [
   { min: 1, rank: 'E', title: 'E-Rank Hunter' },
-  { min: 10, rank: 'D', title: 'D-Rank Hunter' },
-  { min: 20, rank: 'C', title: 'C-Rank Hunter' },
-  { min: 32, rank: 'B', title: 'B-Rank Hunter' },
-  { min: 46, rank: 'A', title: 'A-Rank Hunter' },
-  { min: 62, rank: 'S', title: 'S-Rank Hunter' },
-  { min: 80, rank: 'S+', title: 'National Level' },
-  { min: 100, rank: 'S+', title: 'Monarch' },
-  { min: 130, rank: 'S+', title: 'Absolute Monarch' },
-  { min: 170, rank: 'S+', title: 'Ruler' },
-  { min: 220, rank: 'S+', title: 'Sovereign' },
+  { min: 8, rank: 'D', title: 'D-Rank Hunter' },
+  { min: 16, rank: 'C', title: 'C-Rank Hunter' },
+  { min: 26, rank: 'B', title: 'B-Rank Hunter' },
+  { min: 38, rank: 'A', title: 'A-Rank Hunter' },
+  { min: 52, rank: 'S', title: 'S-Rank Hunter' },
+  { min: 70, rank: 'S+', title: 'National Level' },
+  { min: 95, rank: 'S+', title: 'Monarch' },
+  { min: 125, rank: 'S+', title: 'Absolute Monarch' },
+  { min: 160, rank: 'S+', title: 'Ruler' },
+  { min: 200, rank: 'S+', title: 'Sovereign' },
 ];
 
 /* ============================================================
@@ -182,6 +186,27 @@ export const LADDERS = {
       { name: 'Bench dip', lo: 8, hi: 20 },
       { name: 'Parallel bar dip', lo: 5, hi: 15 },
       { name: 'Weighted dip', lo: 5, hi: 12 },
+    ],
+  },
+  shoulder: {
+    label: 'Shoulders',
+    stat: 'STR',
+    rungs: [
+      { name: 'Pike push-up', lo: 6, hi: 15 },
+      { name: 'Elevated pike push-up', lo: 5, hi: 12 },
+      { name: 'Handstand push-up negative', lo: 3, hi: 8 },
+      { name: 'Wall handstand push-up', lo: 3, hi: 10 },
+    ],
+  },
+  skill: {
+    label: 'Skill',
+    stat: 'AGI',
+    rungs: [
+      { name: 'Frog stand', lo: 15, hi: 45, unit: 'sec' },
+      { name: 'Wall handstand hold', lo: 20, hi: 60, unit: 'sec' },
+      { name: 'Tuck L-sit', lo: 10, hi: 30, unit: 'sec' },
+      { name: 'L-sit', lo: 8, hi: 25, unit: 'sec' },
+      { name: 'Tuck planche hold', lo: 5, hi: 20, unit: 'sec' },
     ],
   },
   conditioning: {

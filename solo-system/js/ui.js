@@ -1,12 +1,14 @@
 import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL, rankClass } from './config.js';
 import * as E from './engine.js';
+import { GOALS, SKILLS, EQUIPMENT, FOCUS, AVOID, LIFTING, PISTOL, DEFAULT_PROFILE, cleanProfile, buildPlan } from './planner.js';
 
 export const ui = {
   tab: 'quests', questFilter: 'open', editingGym: false, calMonth: null, calDay: null,
-  selecting: false, selected: new Set(), board: null, boardLoading: false,
+  selecting: false, selected: new Set(),
   showWelcome: false, welcomeMode: 'choose', welcomeError: '', welcomeBusy: false,
   tutorialOpen: false, tutorialStep: 0,
+  planner: null,   // { step, profile, result } while the Find-my-plan form is open
 };
 
 /* ---------- helpers ---------- */
@@ -137,9 +139,42 @@ function statusBar() {
     </div>
     <div class="xpbar"><i style="width:${Math.max(0, Math.min(100, p.pct)).toFixed(1)}%"></i></div>
     <div class="xp-meta">
-      <span>${p.cur} / ${p.need} XP</span>
+      <span>${p.cur} / ${p.need} XP${E.xpToday(s) ? ` · +${E.xpToday(s)} today` : ''}</span>
       <span class="sync"><i class="${store.status}"></i>${h(label)}${off ? ' \u00b7 DAY OFF' : ''}</span>
     </div>
+  </div>`;
+}
+
+/* ============================================================
+   TODAY — one glance at what's left, tappable through to each tab
+   ============================================================ */
+function todayCard() {
+  const s = g();
+  const today = tk();
+  const off = E.isDayOff(s, today);
+  const st = E.dayStatus(s, today);
+  const dueQ = Object.values(s.quests)
+    .filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
+  const habitsLeft = st.habits - st.habitsDone;
+  const gymLabel = off || E.isGymRest(s, today) ? 'rest pass'
+    : !st.gymScheduled ? 'rest day' : st.gymDone ? 'done' : 'open';
+
+  const tile = (tab, n, label, good) => `<button class="tile ${good ? 'good' : ''}" data-tab="${tab}">
+    <b class="num">${n}</b><span>${label}</span></button>`;
+
+  const perfect = !off && st.eligible
+    ? `<div class="tiny" style="margin-top:11px;color:${st.perfect ? 'var(--ok)' : 'var(--muted)'}">
+        ${st.perfect ? 'Everything cleared — perfect day bonus pays tomorrow.'
+          : `Perfect day: ${st.done}/${st.items} cleared · +${E.scaleXp(s.settings, s.settings.perfectDayXp || 0)} XP and +${s.settings.perfectDayGold || 0}g when it’s all done.`}
+      </div>` : '';
+
+  return `<div class="window flat" style="padding:13px 14px 14px">
+    <div class="tiles">
+      ${tile('quests', dueQ, 'due', dueQ === 0)}
+      ${tile('habits', st.habits ? `${st.habitsDone}/${st.habits}` : '—', 'habits', habitsLeft === 0)}
+      ${tile('gym', gymLabel, 'training', st.gymDone || !st.gymScheduled)}
+    </div>
+    ${perfect}
   </div>`;
 }
 
@@ -201,6 +236,7 @@ function questsTab() {
   const oldCount = E.questsBefore(s, today, 'all').length;
 
   return `<div class="wrap">
+    ${ui.selecting ? '' : todayCard()}
     ${ui.selecting ? `<div class="selbar">
         <button class="sm ghost" data-act="sel-all">${ui.selected?.size === open.length && open.length ? 'None' : 'All'}</button>
         <span class="num">${ui.selected?.size || 0} selected</span>
@@ -281,7 +317,16 @@ function gymTab() {
   const isRestDay = pre.exercises.length === 0;
   const history = (s.cycleHistory || [])[0];
 
+  const prof = s.gymProfile;
+  const finder = `<div class="window flat" style="padding:13px 16px">
+      <div class="tiny" style="margin-bottom:10px;color:${prof ? 'var(--muted)' : 'var(--ink)'}">${prof
+        ? `Built for <b style="color:var(--glow)">${h(GOALS[prof.goal]?.label || 'your goal')}</b> \u00b7 ${prof.days} days a week \u00b7 ${prof.minutes} min`
+        : 'Not sure what to train? Answer a few questions and the System builds a plan around your levels, schedule and equipment.'}</div>
+      <button class="${prof ? 'ghost' : 'gold'}" style="width:100%" data-act="planner-open">${prof ? 'Rebuild my plan' : 'Find my plan'}</button>
+    </div>`;
+
   return `<div class="wrap">
+    ${finder}
     <div class="window">
       <div class="window-title"><h2>${h(pre.planName)}</h2><span class="count">Cycle ${s.cycle.index} \u00b7 Day ${pos.day}/${pos.len}</span></div>
       <div class="cyclebar">${bar.join('')}</div>
@@ -518,65 +563,6 @@ function calendarTab() {
 }
 
 /* ============================================================
-   TAB — RANKING
-   ============================================================ */
-function boardTab() {
-  const st = g();
-  const b = ui.board;
-  const mine = st.board || {};
-
-  if (!store.key) {
-    return `<div class="wrap"><div class="window"><div class="empty">
-      <span class="mark">\u25b2</span>The ranking needs cloud sync.<br>
-      <span class="tiny">Add your hunter key under System \u2192 Sync &amp; data.</span>
-    </div></div></div>`;
-  }
-
-  const rowFor = (r) => `<div class="brow ${r.me ? 'me' : ''}">
-    <span class="place ${r.rank <= 3 ? `p${r.rank}` : ''}">${r.rank}</span>
-    <div class="body">
-      <div class="t">${h(r.name)}${r.me ? ' <span class="pill on">you</span>' : ''}</div>
-      <div class="s">
-        <span>LV ${r.level}</span>
-        ${r.streak ? `<span>${r.streak}d streak</span>` : ''}
-        <span>${r.week.quests} quests</span>
-        <span>${r.week.sessions}/7 training</span>
-      </div>
-    </div>
-    <span class="pay">${Math.round(r.gold ?? 0).toLocaleString()}g</span>
-  </div>`;
-
-
-  return `<div class="wrap">
-    <div class="window">
-      <div class="window-title">
-        <h2>Ranking</h2>
-        <span class="count">${b?.onBoard ?? '\u2014'} hunters</span>
-      </div>
-      <div class="tiny muted" style="margin-bottom:12px">Ranked by gold on hand. This is the honor system \u2014 nothing here is verified, so it\u2019s only worth using with people you actually trust not to edit their save.</div>
-      <div class="grid2">
-        <button data-act="board-refresh">${ui.boardLoading ? 'Loading\u2026' : 'Refresh'}</button>
-        <button class="${mine.optIn ? 'ghost' : 'gold'}" data-act="board-join">${mine.optIn ? 'Edit / leave' : 'Join'}</button>
-      </div>
-    </div>
-
-    ${b?.error ? `<div class="window"><div class="tiny" style="color:var(--danger)">${h(b.error)}</div></div>` : ''}
-
-    ${!mine.optIn ? `<div class="window"><div class="empty">
-        <span class="mark">\u25b2</span>You're not on the board.<br>
-        <span class="tiny">Tap Join to add your name. You can leave any time.</span>
-      </div></div>` : ''}
-
-    ${b?.rows?.length ? `<div class="window">
-        ${b.rows.map(rowFor).join('')}
-      </div>` : b && !b.error ? `<div class="window"><div class="empty">
-        <span class="mark">\u25cb</span>Nobody has joined yet.
-      </div></div>` : ''}
-
-  </div>`;
-}
-
-/* ============================================================
    TAB 4 — SHOP
    ============================================================ */
 function shopTab() {
@@ -711,6 +697,7 @@ function settingsTab() {
     </div></details>
 
     <details class="acc" ${ui.open === 'gym' ? 'open' : ''}><summary>Gym plan</summary><div>
+      <button class="gold" style="width:100%;margin-bottom:14px" data-act="planner-open">${s.gymProfile ? 'Rebuild my plan' : 'Find my plan'}</button>
       <div class="grid2">
         ${T('Cycle length (days)', 'gym.cycleLength', 'number', 'min="7" max="60"')}
         ${T('Gold per session', 'gym.goldPerSession', 'number')}
@@ -804,6 +791,7 @@ function planEditor(planKey) {
           <select data-plan="${planKey}.${d}.${i}.rung" style="flex:1">${L.rungs.map((r, ri) => `<option value="${ri}" ${ri === e.rung ? 'selected' : ''}>${h(r.name)}</option>`).join('')}</select>
           <input class="num-in w" type="number" value="${e.sets}" data-plan="${planKey}.${d}.${i}.sets" title="sets">
           <input class="num-in w" type="number" value="${e.reps ?? L.rungs[e.rung]?.lo ?? 8}" data-plan="${planKey}.${d}.${i}.reps" title="reps">
+          ${L.weighted ? `<input class="num-in w" type="number" value="${e.weightLb ?? 0}" data-plan="${planKey}.${d}.${i}.weightLb" title="weight (lb)">` : ''}
           <button class="sm danger" data-act="del-ex" data-p="${planKey}" data-d="${d}" data-i="${i}">\u2715</button>
         </div>`;
       }).join('')}
@@ -849,12 +837,8 @@ const TABS = [
   ['gym', '\u2694', 'Gym'],
   ['habits', '\u25c9', 'Habits'],
   ['shop', '\u25c6', 'Shop'],
-  ['board', '\u25b2', 'Rank'],
   ['settings', '\u2699', 'System'],
 ];
-// Ranking is built but disabled \u2014 the anti-cheat scoring gave a wrong number
-// on a real account and the cause wasn't nailed down. Flip 'board' back into
-// TABS above to bring the tab back once that's actually fixed.
 
 /* ============================================================
    WELCOME / SIGNUP — shown once, before a brand-new visitor
@@ -911,9 +895,9 @@ export const TUTORIAL_STEPS = [
   { title: 'How this works', body: 'Quests pay gold when you clear them \u2014 harder work pays more. Gold buys things in the Shop, like a day off when you\u2019ve earned it. Training and habits pay too, and everything levels you up.' },
   { title: 'Connect Schoology', body: 'System \u2192 Schoology \u2192 paste your Schoology iCal link \u2192 Sync now. Your assignments show up as quests automatically, ranked by difficulty.', goto: { tab: 'settings', open: 'schoology' } },
   { title: 'Connect Todoist', body: 'System \u2192 Todoist \u2192 paste your personal API token \u2192 Sync now. Works alongside Schoology \u2014 one Sync button pulls both.', goto: { tab: 'settings', open: 'todoist' } },
-  { title: 'Set up your gym plan', body: 'The Gym tab runs a 30-day training cycle that gets harder on its own as you clear sessions. Edit the exercises any time in System \u2192 Gym plan.', goto: { tab: 'gym' } },
+  { title: 'Build your gym plan', body: 'Tap Find my plan on the Gym tab and answer a few questions. It builds a training cycle around your levels, schedule and equipment, and the cycle gets harder on its own as you clear sessions. Edit any exercise later in System \u2192 Gym plan.', goto: { tab: 'gym' } },
   { title: 'Set up your habits', body: 'The Habits tab is for recurring things \u2014 chores, routines, anything on a schedule. Add one with System \u2192 Habits \u2192 + Habit.', goto: { tab: 'habits' } },
-  { title: 'Where everything lives', body: 'Quests: what\u2019s due. Month: a calendar view of all of it. Gym and Habits: your training and routines. Shop: spend your gold. Rank: see how you compare to friends. System: every setting.' },
+  { title: 'Where everything lives', body: 'Quests: what\u2019s due. Month: a calendar view of all of it. Gym and Habits: your training and routines. Shop: spend your gold. System: every setting.' },
 ];
 
 export function tutorialOverlay() {
@@ -936,6 +920,114 @@ export function tutorialOverlay() {
   document.body.appendChild(el);
 }
 
+/* ============================================================
+   FIND MY PLAN — a short questionnaire, then a preview, as an overlay.
+   The planning rules live in planner.js; this only collects answers.
+   ============================================================ */
+export function openPlanner() {
+  const s = g();
+  const target = E.activePlanKey(s);
+  const base = { ...DEFAULT_PROFILE, target, equipment: target === 'summer' ? 'gym' : DEFAULT_PROFILE.equipment, ...(s.gymProfile || {}) };
+  ui.planner = { step: 1, profile: cleanProfile(base), result: null };
+  renderPlanner(false);
+}
+
+export function closePlanner() {
+  ui.planner = null;
+  document.querySelector('.planner-overlay')?.remove();
+}
+
+function plannerStepHtml() {
+  const pl = ui.planner;
+  const p = pl.profile;
+  const chip = (k, v, label) => `<button class="chip ${p[k] === v ? 'on' : ''}" data-act="pf-set" data-k="${k}" data-v="${h(v)}">${h(label)}</button>`;
+  const multi = (k, v, label) => `<button class="chip ${p[k].includes(v) ? 'on' : ''}" data-act="pf-toggle" data-k="${k}" data-v="${h(v)}">${h(label)}</button>`;
+  const opt = (k, v, title, blurb) => `<button class="opt ${p[k] === v ? 'on' : ''}" data-act="pf-set" data-k="${k}" data-v="${h(v)}"><b>${h(title)}</b><span>${h(blurb)}</span></button>`;
+  const num = (k, label, hint) => `<div class="field"><label>${label}</label>
+      <input class="num-in" type="number" inputmode="numeric" min="0" value="${p[k]}" data-pf="${k}">
+      ${hint ? `<div class="tiny muted" style="margin-top:4px">${hint}</div>` : ''}</div>`;
+
+  if (pl.step === 1) {
+    return `<h3>What are you training for?</h3>
+      <div class="opts">${Object.entries(GOALS).map(([k, v]) => opt('goal', k, v.label, v.blurb)).join('')}</div>
+      ${p.goal === 'skills' ? `<label style="margin-top:16px">Which skill first</label>
+        <div class="chips">${Object.entries(SKILLS).map(([k, v]) => chip('skill', k, v)).join('')}</div>` : ''}
+      <label style="margin-top:16px">Build it for</label>
+      <div class="chips">${chip('target', 'school', 'School year')}${chip('target', 'summer', 'Summer')}</div>
+      <div class="tiny muted" style="margin-top:6px">The school-year and summer plans are kept separately. Summer takes over once your school year ends.</div>`;
+  }
+  if (pl.step === 2) {
+    return `<h3>Your week</h3>
+      <label>Equipment</label>
+      <div class="opts">${Object.entries(EQUIPMENT).map(([k, v]) => opt('equipment', k, v.label, v.blurb)).join('')}</div>
+      <label style="margin-top:16px">Days a week you can train</label>
+      <div class="chips">${[2, 3, 4, 5, 6].map((n) => chip('days', n, String(n))).join('')}</div>
+      <div class="tiny muted" style="margin-top:6px">Pick what you will actually keep up. A plan you can’t stick to is a bad plan.</div>
+      <label style="margin-top:16px">Time per session</label>
+      <div class="chips">${[20, 30, 45, 60, 75].map((n) => chip('minutes', n, `${n} min`)).join('')}</div>`;
+  }
+  if (pl.step === 3) {
+    const bar = p.equipment !== 'none';
+    return `<h3>Where you are now</h3>
+      <div class="tiny muted" style="margin-bottom:12px">Test each one fresh, with clean form, as many in a row as you can. Guess if you haven’t tested — you can rebuild later.</div>
+      <div class="grid2">
+        ${num('pushups', 'Push-ups')}
+        ${bar ? num('pullups', 'Pull-ups') : ''}
+        ${num('squats', 'Bodyweight squats')}
+        ${num('plank', 'Plank (seconds)')}
+      </div>
+      <label>Pistol squats</label>
+      <div class="chips">${Object.entries(PISTOL).map(([k, v]) => chip('pistol', k, v)).join('')}</div>
+      ${p.equipment === 'gym' ? `<div class="grid2" style="margin-top:16px">${num('bodyweightLb', 'Bodyweight (lb)', 'Sets your starting weights')}</div>
+        <label>Lifting experience</label>
+        <div class="chips">${Object.entries(LIFTING).map(([k, v]) => chip('lifting', k, v)).join('')}</div>` : ''}`;
+  }
+  if (pl.step === 4) {
+    return `<h3>Focus and limits</h3>
+      <label>Bring up (optional, any number)</label>
+      <div class="chips">${Object.entries(FOCUS).map(([k, v]) => multi('focus', k, v)).join('')}</div>
+      <label style="margin-top:16px">Go easy on (optional)</label>
+      <div class="chips">${Object.entries(AVOID).map(([k, v]) => multi('avoid', k, v)).join('')}</div>
+      <div class="tiny muted" style="margin-top:6px">Those moves get swapped out. This isn’t medical advice — if something hurts, stop and see someone who can look at it.</div>`;
+  }
+
+  // preview
+  const r = pl.result;
+  const willSwitch = r.profile.target !== E.activePlanKey(g());
+  return `<h3 style="margin-bottom:4px">${h(r.name)}</h3>
+    <div class="tiny muted" style="margin-bottom:14px">${r.exercisesPerSession} exercises a session · ${r.len}-day cycle · ${h(r.where.toLowerCase())}</div>
+    ${r.summary.map((d) => `<div class="pv ${d.kind ? '' : 'rest'}">
+        <div class="pv-h"><span>Day ${d.day}</span><b>${h(d.label)}</b></div>
+        ${d.items.map((t) => `<div class="pv-i">${h(t)}</div>`).join('')}
+      </div>`).join('')}
+    <div style="margin-top:16px">${r.notes.map((n) => `<p class="tiny" style="margin:0 0 9px;color:var(--ink);line-height:1.5">${h(n)}</p>`).join('')}</div>
+    ${willSwitch ? `<div class="tiny" style="color:var(--gold);margin-top:6px">This fills your ${h(r.profile.target)} plan, so using it switches the season to ${h(r.profile.target)}.</div>` : ''}
+    <div class="tiny muted" style="margin-top:6px">Using it starts a fresh cycle today and replaces your ${h(r.profile.target)} plan. Your gold, XP and training history stay.</div>`;
+}
+
+export function renderPlanner(keepScroll = true) {
+  if (!ui.planner) return;
+  const pl = ui.planner;
+  let el = document.querySelector('.planner-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'levelup planner-overlay';
+    document.body.appendChild(el);
+  }
+  const scroll = keepScroll ? (el.querySelector('.card')?.scrollTop || 0) : 0;
+  const last = pl.step === 5;
+  el.innerHTML = `<div class="card planner-card" style="text-align:left">
+    <div class="eyebrow">${last ? 'Your plan' : `Find my plan · step ${pl.step} of 4`}</div>
+    <div class="planner-body">${plannerStepHtml()}</div>
+    <div class="grid2" style="margin-top:20px">
+      <button class="ghost" data-act="${pl.step === 1 ? 'planner-close' : 'planner-back'}">${pl.step === 1 ? 'Cancel' : 'Back'}</button>
+      <button class="gold" data-act="${last ? 'planner-apply' : 'planner-next'}">${last ? 'Use this plan' : pl.step === 4 ? 'Build my plan' : 'Next'}</button>
+    </div>
+    ${pl.step > 1 ? '<button class="ghost" style="width:100%;margin-top:8px" data-act="planner-close">Cancel</button>' : ''}
+  </div>`;
+  el.querySelector('.card').scrollTop = scroll;
+}
+
 export function render() {
   if (ui.showWelcome) {
     document.getElementById('app').innerHTML = welcomeScreen();
@@ -948,7 +1040,7 @@ export function render() {
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
   const dueH = E.habitsFor(s, today).filter((x) => !s.habitLog[today]?.[x.id]).length;
 
-  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, board: boardTab, settings: settingsTab }[ui.tab] || questsTab;
+  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, settings: settingsTab }[ui.tab] || questsTab;
   const bodyHtml = typeof body === 'function' ? body() : body;
 
   document.body.classList.toggle('boosted', E.boostFor(s, today) > 1);

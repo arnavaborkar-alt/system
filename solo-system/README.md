@@ -154,11 +154,19 @@ iOS doesn't let a web app draw a widget, so this goes through Scriptable.
    When Interacting: **Run Script**.
 
 It shows level, gold, what's due today, habit progress and whether you've trained.
-Refreshes roughly every 15 minutes, and tapping it opens the app.
+Refreshes roughly every 15 minutes, and tapping it opens the app. If you set it up before
+this version, paste the new `widget-scriptable.js` over the old one — it now sends your
+timezone so the widget's "today" matches the app's.
 
 ---
 
 ## How the numbers work
+
+**Today card.** The top of the Quests tab shows what's due, habits left and training status
+for today, each tappable, plus how close you are to a perfect day.
+
+**Day rollover.** A "day" ends at the hour set in System → Hunter (4am by default), in your
+own timezone. Late-night work before that hour counts toward the previous day.
 
 **Month view.** The calendar tab shows every due date, training day, habit day and
 booked day off in one grid. Coloured dot = highest-ranked quest due that day (green once
@@ -187,20 +195,34 @@ weights are editable in **System → Gold & difficulty**.
 **Gold.** E 10 · D 25 · C 45 · B 80 · A 140 · S 240 · S+ 400. S+ is reserved for
 things like a final exam in an AP class; ordinary homework can't reach it.
 
-**No ceilings.** There's no maximum level and no maximum gold. Levels keep going past
-100 with new titles (National Level Hunter, Shadow Monarch, Monarch of Destruction,
-Ruler of Ash, Sovereign). The only limit anywhere is how fast the leaderboard will
-credit gold — which affects the board, not your save. Finishing more than a day early
+**Levels.** There's no maximum level and no maximum gold. Hunter ranks: D at level 8,
+C at 16, B at 26, A at 38, S at 52, then National Level (70), Monarch (95), Absolute
+Monarch (125), Ruler (160) and Sovereign (200). Level 16 takes about 3,200 XP, level 52
+about 20,000 and level 100 about 54,000. XP comes from quests, training and habits, all
+multiplied by **XP scale** (1.5 by default, System → Gold & difficulty), and a streak adds
+a little on top. A **perfect day** — every habit, quest and training session scheduled
+for that day cleared, with at least 3 things scheduled — pays 60 XP (×scale) and 50 gold
+the next morning. Level is always worked out from total XP, so changing the curve never
+costs anyone progress. Finishing more than a day early
 adds 15%. Finishing late costs 40%. A daily streak adds 3% per day up to 45%. Letting
 a quest expire costs 30 gold, and skipping a habit costs whatever penalty that habit
 carries.
 
-**Training.** Each session pays 70. The cycle runs 30 days; at the end the app looks at
-how much of it you actually cleared:
+**Gym plan finder.** Gym tab → **Find my plan**. Four short steps — goal, equipment and
+schedule, your tested push-up / pull-up / squat / plank numbers, and what to emphasise or
+go easy on — then a preview of the whole week. Days per week picks the split (5–6 push /
+pull / legs, 4 upper / lower, 2–3 full body), minutes per session picks how many exercises
+fit, and your tested maxes pick the starting rung of each ladder. Gym plans get starting
+weights estimated from bodyweight. Using the plan starts a fresh 28-day cycle today and
+replaces the school or summer plan you built it for; rebuild any time.
 
-- 85%+ → reps go up 2, and when you hit the top of the rep range the exercise itself
+**Training.** Each session pays 70. The cycle runs 30 days by default (28 for plans from
+the finder, so the weekly pattern stays lined up with the calendar); at the end the app
+looks at how much of it you actually cleared:
+
+- 85%+ → reps go up 2 (timed holds go up 10 seconds), and when you hit the top of the rep range the exercise itself
   gets harder (push-up → diamond → decline → archer, and so on up the ladder)
-- 60–85% → reps go up 1
+- 60–85% → reps go up 1 (timed holds, 5 seconds)
 - under 60% → the block repeats unchanged
 
 Every 4th cycle is a deload — same movements, fewer sets, on purpose. The ladders,
@@ -218,13 +240,6 @@ off in either direction, since doubling a day where nothing counts would be wast
 Five-day cooldown, and it can be booked for a future date — worth lining up against a
 week with a couple of tests in it.
 
-**Ranking.** Everyone on your link can opt in from the Rank tab — name, level, gold on
-hand, streak, and this week's quests and training. It's honor system: each save mirrors
-its own numbers to a shared board, unverified. Nothing enforces that a save is honest,
-so it's only worth turning on with people you actually trust not to edit their own file.
-Quest titles, classes, Schoology links and notes never leave your own save regardless —
-only the aggregate numbers above ever reach the board. Join or leave any time; leaving hides your row from everyone else's board immediately.
-
 **Shop.** Priced so a day off costs roughly a week and a half of staying consistent,
 and a vacation week costs about two months. Each item also has a cooldown so you
 can't chain them. Buying a day off books actual calendar dates — on those days
@@ -239,17 +254,19 @@ Everything above is a number in Settings. Change any of it.
 ```
 index.html              app shell
 styles.css              theme
-js/config.js            all defaults: ranks, gold, ladders, shop, habits
+js/config.js            all defaults: ranks, gold, XP curve, ladders, shop, habits
 js/store.js             state + cloud/local persistence
-js/engine.js            scoring, gold math, progression, rollover
+js/engine.js            scoring, gold and XP math, progression, rollover
+js/planner.js           the Find-my-plan rules (pure functions)
 js/ui.js                rendering
 js/main.js              actions and wiring
 api/state.js            cloud read/write
-api/board.js            leaderboard read (scoring rules live in state.js + board.js)
-
 api/ics.js              Schoology feed fetch + parse
 api/todoist.js          Todoist task fetch + normalize
+api/signup.js           self-signup + welcome email
 api/widget.js           widget data
+api/calendar.js         read-only calendar feed of your quests
+lib/rank.js             quest scoring shared by the widget and calendar feed
 widget-scriptable.js    the iOS widget
 sw.js                   offline shell cache
 ```

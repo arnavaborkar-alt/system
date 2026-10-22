@@ -256,7 +256,7 @@ label { display: block; font-size: 11px; letter-spacing: .16em; text-transform: 
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   height: calc(var(--tabh) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  display: grid; grid-template-columns: repeat(7, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   background: rgba(4,7,15,.94);
   backdrop-filter: blur(14px);
   border-top: 1px solid var(--line);
@@ -434,27 +434,46 @@ details.acc > div { padding: 0 14px 14px; }
 
 
 /* ============================================================
-   RANKING
+   TODAY CARD
    ============================================================ */
-.brow {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 0; border-bottom: 1px solid rgba(27,44,85,.55);
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile {
+  all: unset; cursor: pointer; text-align: center; padding: 11px 4px 9px;
+  border: 1px solid var(--line); background: rgba(10,18,38,.6);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  transition: background .15s;
 }
-.brow:last-child { border-bottom: 0; }
-.brow .body { flex: 1; min-width: 0; }
-.brow .t { font-size: 15.5px; }
-.brow .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; gap: 9px; flex-wrap: wrap; }
-.brow.me { background: rgba(56,189,248,.07); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.tile:hover { background: rgba(56,189,248,.10); }
+.tile:focus-visible { outline: 2px solid var(--mana); outline-offset: 2px; }
+.tile b { display: block; font-size: 19px; line-height: 1.1; color: var(--gold); }
+.tile span { display: block; margin-top: 3px; font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.tile.good b { color: var(--glow); }
 
-.place {
-  width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center;
-  font-family: var(--m); font-size: 13px; color: var(--muted);
-  border: 1px solid var(--line);
-  clip-path: polygon(50% 0, 100% 26%, 100% 74%, 50% 100%, 0 74%, 0 26%);
+/* ============================================================
+   FIND MY PLAN
+   ============================================================ */
+.planner-card { max-height: calc(100dvh - 40px); overflow-y: auto; max-width: 420px !important; padding: 26px 20px 20px !important; }
+.planner-card h3 { font-size: 20px; margin: 10px 0 16px; color: var(--glow); }
+.opts { display: grid; gap: 8px; }
+.opt {
+  text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--b);
+  display: block; padding: 11px 13px; color: var(--ink);
+  background: rgba(10,18,38,.6); border: 1px solid var(--line);
 }
-.place.p1 { color: var(--gold); border-color: rgba(245,197,66,.55); box-shadow: 0 0 12px -2px rgba(245,197,66,.5); }
-.place.p2 { color: var(--glow); border-color: var(--line-hot); }
-.place.p3 { color: var(--rune); border-color: rgba(167,139,250,.5); }
+.opt b { display: block; font-family: var(--d); font-size: 14px; letter-spacing: .04em; color: var(--ink); }
+.opt span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.opt.on { border-color: var(--mana); background: rgba(56,189,248,.14); }
+.opt.on b { color: var(--glow); }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { padding: 8px 13px; font-size: 12px; background: rgba(10,18,38,.6); color: var(--muted); border: 1px solid var(--line); }
+.chip.on { color: var(--glow); border-color: var(--mana); background: rgba(56,189,248,.18); }
+.pv { padding: 9px 0; border-bottom: 1px solid rgba(27,44,85,.55); }
+.pv:last-of-type { border-bottom: 0; }
+.pv-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 3px; }
+.pv-h span { font-family: var(--m); font-size: 10.5px; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
+.pv-h b { font-family: var(--d); font-size: 14px; color: var(--glow); }
+.pv.rest .pv-h b { color: var(--faint); font-weight: 500; }
+.pv-i { font-family: var(--m); font-size: 12px; color: var(--ink); padding: 1.5px 0; }
 
 
 /* ============================================================

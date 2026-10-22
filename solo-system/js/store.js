@@ -10,7 +10,7 @@ export function freshState() {
   const stats = {};
   STATS.forEach((s) => (stats[s] = 0));
   return {
-    version: 1,
+    version: 2,
     settings: structuredClone(DEFAULT_SETTINGS),
     ladders: structuredClone(LADDERS),
     plans: structuredClone(DEFAULT_PLANS),
@@ -41,19 +41,20 @@ export function freshState() {
     gymRestDays: [],
     habitSkips: 0,
     cycleHistory: [],
+    xpLog: {},           // 'YYYY-MM-DD' -> XP earned that day
+    gymProfile: null,    // answers from the Find-my-plan form
     lastSync: null,
     lastTodoistSync: null,
-    board: { optIn: false, name: '' },
     createdAt: new Date().toISOString(),
   };
 }
 
 /* ---------- date helpers (respect dayResetHour) ---------- */
 export function todayKey(settings) {
+  // Shift the clock back by the reset hour, THEN read the local calendar date.
+  // (toISOString() would read the UTC date, which puts the rollover at the wrong hour.)
   const h = settings?.dayResetHour ?? 4;
-  const d = new Date();
-  d.setHours(d.getHours() - h);
-  return d.toISOString().slice(0, 10);
+  return dateKey(new Date(Date.now() - h * 3600000));
 }
 export function dateKey(d) {
   const x = new Date(d);
@@ -149,11 +150,10 @@ class Store {
     clearTimeout(this.saveTimer);
     const push = async () => {
       try {
-        const payload = { ...this.state, __week: this.weekStats ? this.weekStats(this.state) : {} };
         const r = await fetch('/api/state', {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-hunter-key': this.key },
-          body: JSON.stringify({ state: payload }),
+          body: JSON.stringify({ state: this.state }),
         });
         this.status = r.ok ? 'cloud' : (r.status === 501 ? 'nocloud' : 'offline');
 
@@ -163,15 +163,6 @@ class Store {
     if (immediate) return push();
     this.saveTimer = setTimeout(push, 1200);
     return Promise.resolve();
-  }
-
-  async board() {
-    if (!this.key) return { error: 'Connect your hunter key first.' };
-    try {
-      const r = await fetch('/api/board', { headers: { 'x-hunter-key': this.key } });
-      const j = await r.json();
-      return r.ok ? j : { error: j.error || `Error ${r.status}` };
-    } catch (e) { return { error: e.message }; }
   }
 
   export() { return JSON.stringify(this.state, null, 2); }

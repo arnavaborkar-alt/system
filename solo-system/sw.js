@@ -1,6 +1,6 @@
 /* Shell cache only — app data lives in localStorage + the cloud, never here. */
-const CACHE = 'solo-system-v1';
-const SHELL = ['/', '/index.html', '/styles.css', '/js/main.js', '/js/ui.js', '/js/store.js', '/js/engine.js', '/js/config.js', '/manifest.json'];
+const CACHE = 'solo-system-v2';
+const SHELL = ['/', '/index.html', '/styles.css', '/js/main.js', '/js/ui.js', '/js/store.js', '/js/engine.js', '/js/config.js', '/js/planner.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

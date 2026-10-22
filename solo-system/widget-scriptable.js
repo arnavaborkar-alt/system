@@ -28,7 +28,8 @@ const DANGER = new Color('#FB5E7E');
 const RANK_COLOR = { E: MUTED, D: new Color('#4FA3D1'), C: MANA, B: GLOW, A: new Color('#A78BFA'), S: GOLD, 'S+': new Color('#FF9E4A') };
 
 async function load() {
-  const req = new Request(`${SITE}/api/widget?key=${encodeURIComponent(KEY)}`);
+  // tzo lets the server work out your local "today" (the server itself runs on UTC)
+  const req = new Request(`${SITE}/api/widget?key=${encodeURIComponent(KEY)}&tzo=${new Date().getTimezoneOffset()}`);
   req.timeoutInterval = 12;
   return await req.loadJSON();
 }

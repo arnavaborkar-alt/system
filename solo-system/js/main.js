@@ -1,7 +1,8 @@
 import { store, todayKey, addDays, dateKey } from './store.js';
 import { RANKS } from './config.js';
 import * as E from './engine.js';
-import { ui, render, notify, levelUpWindow, dialog, tutorialOverlay } from './ui.js';
+import { ui, render, notify, levelUpWindow, dialog, tutorialOverlay, openPlanner, closePlanner, renderPlanner } from './ui.js';
+import { buildPlan } from './planner.js';
 
 const g = () => store.state;
 const tk = () => todayKey(g().settings);
@@ -99,7 +100,7 @@ async function syncTodoist(quiet = false) {
               } else if (status === 'completed') {
                 const reward = E.questReward(q, st.settings, st.questStreak || 0, tk(), st);
                 q.done = true; q.missed = false; q.doneAt = new Date().toISOString();
-                q.paid = reward.gold; q.paidRank = reward.rank;
+                q.paid = reward.gold; q.paidRank = reward.rank; q.paidXp = reward.xp;
                 E.pay(st, reward.gold, `Quest: ${q.title}`);
                 E.grantXp(st, reward.xp);
                 E.grantStat(st, 'INT', 1);
@@ -233,7 +234,7 @@ const actions = {
       const q = st.quests[id];
       if (!q || q.done) return;
       const r = E.questReward(q, st.settings, st.questStreak || 0, tk(), st);
-      q.done = true; q.missed = false; q.doneAt = new Date().toISOString(); q.paid = r.gold; q.paidRank = r.rank;
+      q.done = true; q.missed = false; q.doneAt = new Date().toISOString(); q.paid = r.gold; q.paidRank = r.rank; q.paidXp = r.xp;
       E.pay(st, r.gold, `Quest: ${q.title}`);
       lvl = E.grantXp(st, r.xp);
       E.grantStat(st, 'INT', 1);
@@ -249,9 +250,9 @@ const actions = {
       const q = st.quests[el.dataset.id];
       if (!q?.done) return;
       E.pay(st, -(q.paid || 0), `Undo: ${q.title}`);
-      st.xp = Math.max(0, st.xp - (st.settings.xpByRank[q.paidRank] || 0));
-      st.level = E.levelFromXp(st.xp);
-      q.done = false; delete q.paid; delete q.doneAt;
+      // quests cleared before XP was recorded per quest fall back to the old unscaled amount
+      E.revokeXp(st, q.paidXp ?? (st.settings.xpByRank[q.paidRank] || 0));
+      q.done = false; delete q.paid; delete q.paidXp; delete q.doneAt;
     });
     render();
   },
@@ -342,15 +343,51 @@ const actions = {
     render();
   },
 
-  async 'board-refresh'() {
-    ui.boardLoading = true; render();
-    // push a save first so your own row reflects anything not yet synced
-    store.state.updatedAt = new Date().toISOString();
-    await store.save({ immediate: true });
-    await new Promise((r) => setTimeout(r, 400));
-    ui.board = await store.board();
-    ui.boardLoading = false;
-    render();
+  /* ---- find my plan ---- */
+  'planner-open'() { openPlanner(); },
+  'planner-close'() { closePlanner(); },
+  'pf-set'(el) {
+    if (!ui.planner) return;
+    const k = el.dataset.k;
+    ui.planner.profile[k] = (k === 'days' || k === 'minutes') ? Number(el.dataset.v) : el.dataset.v;
+    renderPlanner();
+  },
+  'pf-toggle'(el) {
+    if (!ui.planner) return;
+    const list = ui.planner.profile[el.dataset.k];
+    const v = el.dataset.v;
+    ui.planner.profile[el.dataset.k] = list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+    renderPlanner();
+  },
+  'planner-next'() {
+    const pl = ui.planner;
+    if (!pl) return;
+    pl.step = Math.min(5, pl.step + 1);
+    if (pl.step === 5) pl.result = buildPlan(pl.profile, g().ladders);
+    renderPlanner(false);
+  },
+  'planner-back'() {
+    const pl = ui.planner;
+    if (!pl) return;
+    pl.step = Math.max(1, pl.step - 1);
+    renderPlanner(false);
+  },
+  'planner-apply'() {
+    const plan = ui.planner?.result;
+    if (!plan) return;
+    const target = plan.profile.target;
+    let switched = false;
+    store.update((st) => {
+      st.plans[target] = { name: plan.name, location: plan.location, days: plan.days };
+      st.settings.gym.cycleLength = plan.len;
+      if (E.activePlanKey(st) !== target) { st.settings.season = target; switched = true; }
+      st.cycle = { index: 1, startDate: tk(), plan: target };
+      st.gymProfile = plan.profile;
+    });
+    closePlanner();
+    ui.tab = 'gym'; ui.open = null;
+    render(); window.scrollTo(0, 0);
+    notify('gold', 'Plan ready', switched ? `${plan.name} · season set to ${target}` : plan.name);
   },
 
   async 'cal-generate'() {
@@ -378,27 +415,6 @@ const actions = {
     });
     if (!v) return;
     await actions['cal-generate']();
-  },
-
-  async 'board-join'() {
-    const st = g();
-    const v = await dialog({
-      title: st.board?.optIn ? 'Board settings' : 'Join the ranking',
-      confirm: 'Save',
-      message: 'Everyone on this link sees your name, level, gold earned and weekly activity. Quest titles, classes and notes stay private.',
-      fields: [
-        { name: 'name', label: 'Display name', value: st.board?.name || st.settings.hunterName || '', placeholder: 'Hunter' },
-        { name: 'optIn', label: 'Show me on the board', value: st.board?.optIn ? 'yes' : 'no',
-          options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No, hide me' }] },
-      ],
-    });
-    if (!v) return;
-    store.update((stt) => {
-      stt.board = { optIn: v.optIn === 'yes', name: (v.name || 'Hunter').slice(0, 18) };
-    });
-    store.save({ immediate: true });
-    setTimeout(() => actions['board-refresh'](), 900);
-    render();
   },
 
   'select-mode'() { ui.selecting = !ui.selecting; ui.selected = new Set(); render(); },
@@ -509,14 +525,13 @@ const actions = {
       const gold = Math.round(st.settings.gym.goldPerSession * mult);
       if (!was) {
         E.pay(st, gold, `Training session${mult > 1 ? ` (${mult}\u00d7)` : ''}`);
-        lvl = E.grantXp(st, Math.round((st.settings.gym.goldPerSession / 3) * mult));
+        lvl = E.grantXp(st, E.gymXp(st, day));
         const pre = E.prescribedFor(st, day);
         pre.exercises.forEach((e) => E.grantStat(st, e.stat, 1));
         notify('gold', `+${gold} gold`, 'Session cleared');
       } else {
         E.pay(st, -gold, 'Undo training session');
-        st.xp = Math.max(0, st.xp - Math.round((st.settings.gym.goldPerSession / 3) * mult));
-        st.level = E.levelFromXp(st.xp);
+        E.revokeXp(st, E.gymXp(st, day));
       }
     });
     if (lvl) levelUpWindow(lvl);
@@ -534,9 +549,14 @@ const actions = {
       if (!hb) return;
       if (st.habitLog[day][id] !== undefined) {
         const refund = typeof st.habitLog[day][id] === 'number' ? st.habitLog[day][id] : 0;
+        const wasSkip = st.habitLog[day][id] === 'skipped';
         delete st.habitLog[day][id];
         st.habitStreaks[id] = Math.max(0, (st.habitStreaks[id] || 1) - 1);
-        if (refund) E.pay(st, -refund, `Undo: ${hb.name}`);
+        if (refund) {
+          E.pay(st, -refund, `Undo: ${hb.name}`);
+          E.revokeXp(st, E.habitXp(st, hb, day));   // otherwise un-ticking and re-ticking farms XP
+        }
+        if (wasSkip) st.habitSkips = (st.habitSkips || 0) + 1;
       } else {
         st.habitStreaks[id] = (st.habitStreaks[id] || 0) + 1;
         const streak = st.habitStreaks[id];
@@ -545,7 +565,7 @@ const actions = {
         const total = Math.round((hb.gold + bonus) * mult);
         st.habitLog[day][id] = total > 0 ? total : true;
         E.pay(st, total, `Habit: ${hb.name}${mult > 1 ? ` (${mult}\u00d7)` : ''}`);
-        lvl = E.grantXp(st, Math.max(1, Math.round((hb.gold / 4) * mult)));
+        lvl = E.grantXp(st, E.habitXp(st, hb, day));
         E.grantStat(st, hb.stat || 'PER', 1);
         notify('gold', `+${total} gold`, bonus ? `${streak}\u00d7 streak bonus` : hb.name);
       }
@@ -806,6 +826,13 @@ document.addEventListener('click', (ev) => {
   if (fn) { ev.preventDefault(); fn(el); }
 });
 
+// Find-my-plan number fields update the answers as you type, without redrawing
+// the form (a redraw would drop the keyboard).
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.dataset?.pf !== undefined && ui.planner) ui.planner.profile[t.dataset.pf] = t.value === '' ? 0 : Number(t.value);
+});
+
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   const keepOpen = () => {
@@ -896,7 +923,6 @@ document.addEventListener('change', (ev) => {
    BOOT
    ============================================================ */
 export async function boot() {
-  store.weekStats = (st) => E.weekStats(st);
 
   const brandNew = !localStorage.getItem('solo-system-v1');
   if (brandNew) { ui.showWelcome = true; render(); return; }   // bootContinue runs once they pick a path
@@ -912,9 +938,14 @@ async function bootContinue() {
 
   if (!g().settings.onboarded) { ui.tutorialStep = 0; ui.tutorialOpen = true; tutorialOverlay(); }
 
-  events.slice(0, 4).forEach((e, i) => setTimeout(() => {
-    notify(e.type === 'penalty' ? 'bad' : e.type === 'cycle' ? 'gold' : '',
-      e.type === 'penalty' ? 'Penalty' : e.type === 'cycle' ? 'Cycle complete' : 'System', e.text);
+  const climbed = events.filter((e) => e.type === 'levelup').pop();
+  if (climbed) levelUpWindow(climbed.level);
+
+  const shown = events.filter((e) => e.type !== 'levelup');
+  shown.slice(0, 4).forEach((e, i) => setTimeout(() => {
+    const kind = e.type === 'penalty' ? 'bad' : (e.type === 'cycle' || e.type === 'perfect') ? 'gold' : '';
+    const label = { penalty: 'Penalty', cycle: 'Cycle complete', perfect: 'Bonus' }[e.type] || 'System';
+    notify(kind, label, e.text);
   }, 400 + i * 600));
 
   // auto-sync if it's been long enough
