@@ -2,6 +2,7 @@ import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL, rankClass } from './config.js';
 import * as E from './engine.js';
 import { icon } from './icons.js';
+import { THEMES, DEFAULT_LOOK, paletteFor, applyLook } from './theme.js';
 import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
@@ -830,6 +831,7 @@ function shopTab() {
 function settingsTab() {
   const s = g();
   const st = s.settings;
+  const look = { ...DEFAULT_LOOK, ...(st.look || {}) };
   const T = (label, path, type = 'text', extra = '') =>
     `<div class="field"><label>${label}</label><input class="${type === 'number' ? 'num-in' : ''}" type="${type}" data-set="${path}" value="${h(getPath(st, path))}" ${extra}></div>`;
 
@@ -839,6 +841,25 @@ function settingsTab() {
   return `<div class="wrap">
     <button class="ghost" style="width:100%;margin-bottom:14px" data-act="tutorial-replay">Replay tutorial</button>
     <div class="window"><div class="window-title"><h2>Status</h2></div>${statBlock}</div>
+
+    <details class="acc" ${ui.open === 'customize' ? 'open' : ''}><summary>Customize</summary><div>
+      <div class="field"><label>Theme</label>
+        <div class="swatches">${Object.entries(THEMES).map(([k, t]) => `<button class="swatch ${look.theme === k ? 'on' : ''}" data-act="look" data-k="theme" data-v="${k}" aria-label="${t.name} theme">
+          <i style="background:linear-gradient(135deg,${t.void} 0%,${t.hi} 45%,${t.mana} 100%)"></i><span>${t.name}</span></button>`).join('')}
+          <button class="swatch ${look.theme === 'custom' ? 'on' : ''}" data-act="look" data-k="theme" data-v="custom" aria-label="Custom colour">
+          <i style="background:linear-gradient(135deg,${paletteFor({ theme: 'custom', accent: look.accent }).void},${look.accent})"></i><span>Custom</span></button></div>
+        <div class="colorrow"><input type="color" value="${h(look.accent)}" data-look-accent aria-label="Accent colour">
+          <div><div class="tiny">Your own accent colour</div><div class="hex">${h(look.accent.toUpperCase())}</div></div></div></div>
+      ${[
+        ['Corners', 'corners', [['cut', 'Cut'], ['round', 'Round'], ['square', 'Square']]],
+        ['Density', 'density', [['comfy', 'Roomy'], ['compact', 'Compact']]],
+        ['Text &amp; UI size', 'scale', [['0.9', 'Small'], ['1', 'Normal'], ['1.12', 'Large'], ['1.25', 'Huge']]],
+        ['Font', 'font', [['hunter', 'Hunter'], ['clean', 'Clean'], ['mono', 'Mono']]],
+        ['Background glow', 'haze', [['true', 'On'], ['false', 'Off']]],
+        ['Background grid', 'grid', [['true', 'On'], ['false', 'Off']]],
+      ].map(([label, k, opts]) => `<div class="field"><label>${label}</label><div class="seg">${opts.map(([v, l]) => `<button class="${String(look[k]) === v ? 'on' : ''}" data-act="look" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div></div>`).join('')}
+      <button class="ghost" style="width:100%" data-act="look-reset">Reset look</button>
+    </div></details>
 
     <details class="acc" ${ui.open === 'hunter' ? 'open' : ''}><summary>Hunter</summary><div>
       ${T('Name', 'hunterName')}
@@ -1258,6 +1279,7 @@ export function render() {
     return;
   }
 
+  applyLook(g().settings.look);
   const s = g();
   const today = tk();
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;

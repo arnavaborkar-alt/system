@@ -80,6 +80,9 @@ export const DEFAULT_SETTINGS = {
 
   theme: { accent: '#38BDF8', gold: '#F5C542' },
 
+  // ---- Look (see theme.js for the options) ----
+  look: { theme: 'system', accent: '#38BDF8', corners: 'cut', density: 'comfy', scale: 1, haze: true, grid: true, font: 'hunter' },
+
   // ---- Challenges & feedback ----
   challengesEnabled: true,
   challengeScale: 1,        // 0.7 easy, 1 normal, 1.3 hard. Bigger targets pay more.

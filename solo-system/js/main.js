@@ -5,6 +5,7 @@ import { ui, render, notify, levelUpWindow, achievementBanner, dialog, tutorialO
 import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
+import { applyStoredLook } from './theme.js';
 import { buildPlan } from './planner.js';
 
 const g = () => store.state;
@@ -856,6 +857,16 @@ const actions = {
     FX.haptic();
     render();
   },
+  look(el) {
+    const k = el.dataset.k; let v = el.dataset.v;
+    if (v === 'true') v = true; else if (v === 'false') v = false; else if (k === 'scale') v = Number(v);
+    store.update((st) => { st.settings.look = { ...(st.settings.look || {}), [k]: v }; });
+    ui.open = 'customize'; render();
+  },
+  'look-reset'() {
+    store.update((st) => { st.settings.look = { theme: 'system', accent: '#38BDF8', corners: 'cut', density: 'comfy', scale: 1, haze: true, grid: true, font: 'hunter' }; });
+    ui.open = 'customize'; render();
+  },
   'ach-filter'(el) { ui.achFilter = el.dataset.f; render(); },
 };
 
@@ -916,8 +927,21 @@ document.addEventListener('input', (ev) => {
   if (t.dataset?.pf !== undefined && ui.planner) ui.planner.profile[t.dataset.pf] = t.value === '' ? 0 : Number(t.value);
 });
 
+// the colour picker previews live while dragging and saves on release
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.dataset?.lookAccent === undefined) return;
+  const l = { ...(g().settings.look || {}), theme: 'custom', accent: t.value };
+  g().settings.look = l;
+  import('./theme.js').then((m) => m.applyLook(l));
+});
+
 document.addEventListener('change', (ev) => {
   const t = ev.target;
+  if (t.dataset.lookAccent !== undefined) {
+    store.update((st) => { st.settings.look = { ...(st.settings.look || {}), theme: 'custom', accent: t.value }; });
+    ui.open = 'customize'; render(); return;
+  }
   const keepOpen = () => {
     const sum = t.closest('details.acc')?.querySelector('summary')?.textContent.trim().toLowerCase();
     if (sum) ui.open = sum.split(/[\s&]/)[0];
@@ -1062,4 +1086,5 @@ store.beforeCommit = (st) => {
 };
 const applyFx = () => FX.configure({ enabled: () => g().settings.fxEnabled !== false, haptics: () => g().settings.haptics !== false });
 applyFx();
+applyStoredLook();
 boot();

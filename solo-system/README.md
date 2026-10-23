@@ -258,6 +258,8 @@ Some unlock a title you can wear under your name. Existing saves are credited si
 **Shop.** Now grouped (Treats, Power-ups, Time off, Big rewards), about 30% cheaper, with new items:
 1.5x and 3x boosts, streak shield, challenge reroll and more. Prices you edited yourself are kept.
 
+**Customize.** System → Customize: six colour themes plus your own accent colour, corner style, density, text size, font and background effects. On a wide screen the tabs become a side rail and pages use two or three columns.
+
 Everything above is a number in Settings. Change any of it.
 
 ---
@@ -275,6 +277,7 @@ js/challenges.js        daily / weekly / monthly challenges
 js/achievements.js      achievements and titles
 js/fx.js                floating numbers, bursts, haptics
 js/icons.js             SVG icon set
+js/theme.js             colour themes and the Customize options
 js/ui.js                rendering
 js/main.js              actions and wiring
 api/state.js            cloud read/write
