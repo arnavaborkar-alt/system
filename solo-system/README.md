@@ -245,6 +245,19 @@ and a vacation week costs about two months. Each item also has a cooldown so you
 can't chain them. Buying a day off books actual calendar dates — on those days
 nothing penalises you and your streaks survive.
 
+**Challenges.** The Hunter tab holds a daily, weekly and monthly set of three. Targets scale with
+your level (and the Easy/Normal/Hard setting) and are fixed when the period starts; from level 20 up
+some ask for higher-rank quests, and at 100+ they ask for S-rank. Progress is read straight from your
+logs, so undoing something takes it back. Finished ones pay on Claim, or automatically when the
+period ends. Reroll tokens (Shop) swap one for another.
+
+**Achievements and titles.** About 60 across quests, ranks, training, habits, perfect days, streaks,
+levels, gold, shopping and challenges, in bronze / silver / gold / legend tiers that pay gold and XP.
+Some unlock a title you can wear under your name. Existing saves are credited silently on first load.
+
+**Shop.** Now grouped (Treats, Power-ups, Time off, Big rewards), about 30% cheaper, with new items:
+1.5x and 3x boosts, streak shield, challenge reroll and more. Prices you edited yourself are kept.
+
 Everything above is a number in Settings. Change any of it.
 
 ---
@@ -258,6 +271,10 @@ js/config.js            all defaults: ranks, gold, XP curve, ladders, shop, habi
 js/store.js             state + cloud/local persistence
 js/engine.js            scoring, gold and XP math, progression, rollover
 js/planner.js           the Find-my-plan rules (pure functions)
+js/challenges.js        daily / weekly / monthly challenges
+js/achievements.js      achievements and titles
+js/fx.js                floating numbers, bursts, haptics
+js/icons.js             SVG icon set
 js/ui.js                rendering
 js/main.js              actions and wiring
 api/state.js            cloud read/write

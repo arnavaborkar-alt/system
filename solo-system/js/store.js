@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SETTINGS, DEFAULT_PLANS, DEFAULT_SHOP, DEFAULT_HABITS, LADDERS, STATS,
+  DEFAULT_SETTINGS, DEFAULT_PLANS, DEFAULT_SHOP, DEFAULT_HABITS, LADDERS, STATS, SHOP_VERSION,
 } from './config.js';
 
 const LOCAL_KEY = 'solo-system-v1';
@@ -10,11 +10,12 @@ export function freshState() {
   const stats = {};
   STATS.forEach((s) => (stats[s] = 0));
   return {
-    version: 2,
+    version: 3,
     settings: structuredClone(DEFAULT_SETTINGS),
     ladders: structuredClone(LADDERS),
     plans: structuredClone(DEFAULT_PLANS),
     shop: structuredClone(DEFAULT_SHOP),
+    shopVersion: SHOP_VERSION,
     habits: structuredClone(DEFAULT_HABITS),
 
     gold: 0,
@@ -43,6 +44,13 @@ export function freshState() {
     cycleHistory: [],
     xpLog: {},           // 'YYYY-MM-DD' -> XP earned that day
     gymProfile: null,    // answers from the Find-my-plan form
+    challenges: {},      // { daily|weekly|monthly: { key, items: [...] } }
+    counters: {},        // lifetime high-water marks used by achievements
+    achievements: {},    // id -> ISO time unlocked
+    achInit: false,
+    title: '',           // equipped title id ('' = rank title)
+    rerolls: 0,
+    streakShields: 0,
     lastSync: null,
     lastTodoistSync: null,
     createdAt: new Date().toISOString(),
@@ -87,6 +95,13 @@ function merge(base, saved) {
   return saved === undefined ? base : saved;
 }
 
+/** Merge a saved copy over the defaults. A save from before shop versions existed
+ *  must read as version 1, not inherit today's default and skip the migration. */
+function hydrate(saved) {
+  if (saved && typeof saved === 'object' && saved.shopVersion === undefined) saved.shopVersion = 1;
+  return merge(freshState(), saved);
+}
+
 /* ---------- the store ---------- */
 class Store {
   constructor() {
@@ -110,7 +125,7 @@ class Store {
     // local first so the UI paints immediately
     const raw = localStorage.getItem(LOCAL_KEY);
     if (raw) {
-      try { this.state = merge(freshState(), JSON.parse(raw)); } catch { /* corrupt, ignore */ }
+      try { this.state = hydrate(JSON.parse(raw)); } catch { /* corrupt, ignore */ }
     }
     this.emit();
 
@@ -122,7 +137,7 @@ class Store {
       if (!r.ok) throw new Error(r.status);
       const body = await r.json();
       if (body.state) {
-        const remote = merge(freshState(), body.state);
+        const remote = hydrate(body.state);
         const localAt = this.state.updatedAt ? Date.parse(this.state.updatedAt) : 0;
         const remoteAt = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
         if (remoteAt >= localAt) this.state = remote;
@@ -139,6 +154,7 @@ class Store {
   /* mutate + persist */
   update(fn) {
     fn(this.state);
+    if (this.beforeCommit) this.beforeCommit(this.state);   // set by main.js (keeps imports one-way)
     this.state.updatedAt = new Date().toISOString();
     this.emit();
     this.save();
@@ -169,7 +185,7 @@ class Store {
 
   import(json) {
     const parsed = JSON.parse(json);
-    this.state = merge(freshState(), parsed);
+    this.state = hydrate(parsed);
     this.state.updatedAt = new Date().toISOString();
     this.emit();
     this.save({ immediate: true });

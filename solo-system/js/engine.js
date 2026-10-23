@@ -1,4 +1,4 @@
-import { RANKS, xpForLevel, levelForXp, HUNTER_RANK_BY_LEVEL, STATS } from './config.js';
+import { RANKS, xpForLevel, levelForXp, HUNTER_RANK_BY_LEVEL, STATS, DEFAULT_SHOP, OLD_SHOP, SHOP_VERSION } from './config.js';
 import { todayKey, dateKey, addDays, daysBetween, dueDay } from './store.js';
 
 /* ============================================================
@@ -124,6 +124,16 @@ export function grantXp(state, amount, key) {
   const after = levelFromXp(state.xp);
   state.level = after;
   logXp(state, amount, key);
+  return after > before ? after : null;
+}
+
+/** XP from challenges and achievements. Counts toward level but NOT toward the
+ *  daily XP log, so "earn N XP" challenges can't be fed by their own rewards. */
+export function grantBonusXp(state, amount) {
+  const before = levelFromXp(state.xp);
+  state.xp += amount;
+  const after = levelFromXp(state.xp);
+  state.level = after;
   return after > before ? after : null;
 }
 
@@ -567,6 +577,10 @@ export function buy(state, item, startKey) {
     rec.covers = [from];
   } else if (g?.type === 'habitSkip') {
     state.habitSkips = (state.habitSkips || 0) + (g.n || 1);
+  } else if (g?.type === 'streakShield') {
+    state.streakShields = (state.streakShields || 0) + (g.n || 1);
+  } else if (g?.type === 'reroll') {
+    state.rerolls = (state.rerolls || 0) + (g.n || 1);
   } else if (g?.type === 'boost') {
     const from = startKey || todayKey(state.settings);
     const days = [];
@@ -580,4 +594,26 @@ export function buy(state, item, startKey) {
 
   state.purchases.unshift(rec);
   return { ok: true, rec };
+}
+
+/** Brings an older saved shop up to date: lower prices and new icons on items you never
+ *  edited, plus any default items you do not have yet. Your own items are left alone. */
+export function migrateShop(state) {
+  if ((state.shopVersion || 1) >= SHOP_VERSION) return false;
+  const have = new Map((state.shop || []).map((i) => [i.id, i]));
+  const defs = new Map(DEFAULT_SHOP.map((i) => [i.id, i]));
+  for (const [id, item] of have) {
+    const def = defs.get(id);
+    if (!def) continue;
+    const old = OLD_SHOP[id];
+    if (old && item.price === old.price) item.price = def.price;
+    if (old && item.icon === old.icon) item.icon = def.icon;
+    if (!item.cat) item.cat = def.cat;
+  }
+  DEFAULT_SHOP.forEach((def) => { if (!have.has(def.id)) state.shop.push(structuredClone(def)); });
+  // defaults in their intended order, then anything you made yourself
+  const order = new Map(DEFAULT_SHOP.map((d, i) => [d.id, i]));
+  state.shop.sort((a, b) => (order.has(a.id) ? order.get(a.id) : 999) - (order.has(b.id) ? order.get(b.id) : 999));
+  state.shopVersion = SHOP_VERSION;
+  return true;
 }

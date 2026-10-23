@@ -1,7 +1,10 @@
 import { store, todayKey, addDays, dateKey } from './store.js';
 import { RANKS } from './config.js';
 import * as E from './engine.js';
-import { ui, render, notify, levelUpWindow, dialog, tutorialOverlay, openPlanner, closePlanner, renderPlanner } from './ui.js';
+import { ui, render, notify, levelUpWindow, achievementBanner, dialog, tutorialOverlay, openPlanner, closePlanner, renderPlanner } from './ui.js';
+import * as C from './challenges.js';
+import * as A from './achievements.js';
+import * as FX from './fx.js';
 import { buildPlan } from './planner.js';
 
 const g = () => store.state;
@@ -212,8 +215,20 @@ async function syncSchoology(quiet = false) {
 function bumpQuestStreak(st) {
   const today = tk();
   if (st.lastQuestDay === today) return;
-  st.questStreak = st.lastQuestDay === addDays(today, -1) ? (st.questStreak || 0) + 1 : 1;
+  if (st.lastQuestDay === addDays(today, -1)) st.questStreak = (st.questStreak || 0) + 1;
+  else if (st.lastQuestDay && (st.streakShields || 0) > 0 && (st.questStreak || 0) > 0) {
+    st.streakShields -= 1;                       // a shield eats the missed day(s)
+    st.questStreak += 1;
+    notify('', 'Streak shield', 'Used \u2014 your streak survived.');
+  } else st.questStreak = 1;
   st.lastQuestDay = today;
+}
+
+/** Settles past days and counts the perfect ones toward achievements. */
+function settle(st) {
+  const ev = E.rollover(st);
+  ev.filter((e) => e.type === 'perfect').forEach(() => A.notePerfect(st));
+  return ev;
 }
 
 const actions = {
@@ -229,7 +244,8 @@ const actions = {
 
   'finish-quest'(el) {
     const id = el.dataset.id;
-    let lvl = null;
+    const at = FX.anchor(el);
+    let lvl = null; let got = null;
     store.update((st) => {
       const q = st.quests[id];
       if (!q || q.done) return;
@@ -239,10 +255,13 @@ const actions = {
       lvl = E.grantXp(st, r.xp);
       E.grantStat(st, 'INT', 1);
       bumpQuestStreak(st);
+      got = r;
       notify('gold', `+${r.gold} gold`, `${r.rank}-rank cleared${r.bonusPct ? ` \u00b7 ${r.bonusPct > 0 ? '+' : ''}${r.bonusPct}%` : ''}`);
     });
+    if (got) rewardFx(at, got.gold, got.xp, got.rank);
     if (lvl) levelUpWindow(lvl);
     render();
+    flushFeedback();
   },
 
   'undo-quest'(el) {
@@ -514,8 +533,9 @@ const actions = {
     render();
   },
 
-  'finish-gym'() {
-    let lvl = null;
+  'finish-gym'(el) {
+    const at = FX.anchor(el);
+    let lvl = null; let paid = null;
     store.update((st) => {
       const day = tk();
       st.gymLog[day] = st.gymLog[day] || { exercises: {} };
@@ -528,20 +548,24 @@ const actions = {
         lvl = E.grantXp(st, E.gymXp(st, day));
         const pre = E.prescribedFor(st, day);
         pre.exercises.forEach((e) => E.grantStat(st, e.stat, 1));
+        paid = { gold, xp: E.gymXp(st, day) };
         notify('gold', `+${gold} gold`, 'Session cleared');
       } else {
         E.pay(st, -gold, 'Undo training session');
         E.revokeXp(st, E.gymXp(st, day));
       }
     });
+    if (paid) rewardFx(at, paid.gold, paid.xp, 'B');
     if (lvl) levelUpWindow(lvl);
     render();
+    flushFeedback();
   },
 
   /* ---- habits ---- */
   'toggle-habit'(el) {
     const id = el.dataset.id;
-    let lvl = null;
+    const at = FX.anchor(el);
+    let lvl = null; let paid = null;
     store.update((st) => {
       const day = tk();
       st.habitLog[day] = st.habitLog[day] || {};
@@ -567,11 +591,14 @@ const actions = {
         E.pay(st, total, `Habit: ${hb.name}${mult > 1 ? ` (${mult}\u00d7)` : ''}`);
         lvl = E.grantXp(st, E.habitXp(st, hb, day));
         E.grantStat(st, hb.stat || 'PER', 1);
+        paid = { gold: total, xp: E.habitXp(st, hb, day) };
         notify('gold', `+${total} gold`, bonus ? `${streak}\u00d7 streak bonus` : hb.name);
       }
     });
+    if (paid) rewardFx(at, paid.gold, paid.xp, 'C');
     if (lvl) levelUpWindow(lvl);
     render();
+    flushFeedback();
   },
 
   async 'use-skip'() {
@@ -608,12 +635,15 @@ const actions = {
     if (!v) return;
     const start = needsDate ? v.start : tk();
     if (needsDate && !start) return;
+    let bought = false;
     store.update((st) => {
       const res = E.buy(st, item, start);
       if (!res.ok) notify('bad', 'Denied', res.why);
-      else notify('gold', 'Purchased', item.name);
+      else { bought = true; notify('gold', 'Purchased', item.name); }
     });
+    if (bought) { FX.haptic('good'); FX.burst(innerWidth / 2, innerHeight * 0.4, { color: 'var(--gold)', count: 16 }); }
     render();
+    flushFeedback();
   },
 
   /* ---- settings ---- */
@@ -798,7 +828,60 @@ const actions = {
   'tab-settings-habits'() { ui.tab = 'settings'; ui.open = 'habits'; render(); window.scrollTo(0, 0); },
   'tab-settings-shop'() { ui.tab = 'settings'; ui.open = 'shop'; render(); window.scrollTo(0, 0); },
   'close-levelup'() { document.querySelector('.levelup')?.remove(); },
+
+  /* ---- challenges, titles, achievements ---- */
+  'claim-ch'(el) {
+    const at = FX.anchor(el);
+    let res = null; let lvl = null;
+    store.update((st) => {
+      const before = st.level;
+      res = C.claim(st, el.dataset.p, el.dataset.id);
+      if (res && st.level > before) lvl = st.level;
+    });
+    if (!res) return;
+    notify('gold', 'Challenge complete', `+${res.gold}g \u00b7 +${res.xp} XP`);
+    FX.haptic('good'); FX.burst(at.x, at.y, { color: 'var(--gold)', count: 18 }); FX.coinShower(16);
+    FX.floatText(at.x, at.y - 10, `+${res.gold}g`);
+    render();
+    flushFeedback();
+  },
+  'reroll-ch'(el) {
+    let ok = false;
+    store.update((st) => { ok = C.reroll(st, el.dataset.p, el.dataset.id); });
+    notify(ok ? '' : 'bad', ok ? 'Rerolled' : 'System', ok ? 'New challenge assigned.' : 'Could not reroll that one.');
+    render();
+  },
+  'equip-title'(el) {
+    store.update((st) => { st.title = el.dataset.t || ''; });
+    FX.haptic();
+    render();
+  },
+  'ach-filter'(el) { ui.achFilter = el.dataset.f; render(); },
 };
+
+/** Floating numbers + burst at the thing you tapped. */
+function rewardFx(at, gold, xp, rank) {
+  FX.haptic(rank === 'S' || rank === 'S+' ? 'big' : 'good');
+  FX.floatText(at.x, at.y - 14, `+${gold}g`, 'gold');
+  if (xp) FX.floatText(at.x + 4, at.y + 12, `+${xp} XP`, 'xp');
+  const hot = rank === 'S' || rank === 'S+';
+  FX.burst(at.x, at.y, { color: hot ? 'var(--gold)' : 'var(--glow)', count: hot ? 22 : 12, big: hot });
+}
+
+/** Shows whatever the achievement and challenge engines queued during the last update. */
+function flushFeedback() {
+  let climbed = null;
+  let delay = 0;
+  const handle = (ev) => {
+    if (ev.type === 'ach') { setTimeout(() => achievementBanner(ev), delay); delay += 900; FX.coinShower(8); }
+    else if (ev.type === 'levelup') climbed = ev.level;
+    else if (ev.type === 'backfill') setTimeout(() => notify('', 'Achievements', `${ev.n} unlocked from your history.`), delay);
+    else if (ev.type === 'auto') setTimeout(() => notify('gold', 'Challenges', ev.text), delay);
+  };
+  while (A.queue.length) handle(A.queue.shift());
+  while (C.queue.length) handle(C.queue.shift());
+  if (climbed) setTimeout(() => levelUpWindow(climbed), 350);
+}
 
 /* ============================================================
    EVENT WIRING
@@ -899,7 +982,7 @@ document.addEventListener('change', (ev) => {
       const it = st.shop[+i];
       if (!it) return;
       if (field === 'price' || field === 'cooldownDays') it[field] = Number(t.value);
-      else if (field === 'grantType') it.grants = t.value ? { type: t.value, days: it.grants?.days || 1, n: it.grants?.n || 1 } : null;
+      else if (field === 'grantType') it.grants = t.value ? { type: t.value, days: it.grants?.days || 1, n: it.grants?.n || 1, ...(t.value === 'boost' ? { mult: 2 } : {}) } : null;
       else if (field === 'grantN') { if (it.grants) { it.grants.days = Number(t.value); it.grants.n = Number(t.value); } }
       else it[field] = t.value;
     });
@@ -933,7 +1016,7 @@ export async function boot() {
 
 async function bootContinue() {
   const events = [];
-  store.update((st) => { events.push(...E.rollover(st)); });
+  store.update((st) => { events.push(...settle(st)); });
   render();
 
   if (!g().settings.onboarded) { ui.tutorialStep = 0; ui.tutorialOpen = true; tutorialOverlay(); }
@@ -941,6 +1024,7 @@ async function bootContinue() {
   const climbed = events.filter((e) => e.type === 'levelup').pop();
   if (climbed) levelUpWindow(climbed.level);
 
+  flushFeedback();
   const shown = events.filter((e) => e.type !== 'levelup');
   shown.slice(0, 4).forEach((e, i) => setTimeout(() => {
     const kind = e.type === 'penalty' ? 'bad' : (e.type === 'cycle' || e.type === 'perfect') ? 'gold' : '';
@@ -963,12 +1047,19 @@ async function bootContinue() {
   let lastDay = tk();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
-    if (tk() !== lastDay) { lastDay = tk(); store.update((st) => E.rollover(st)); }
+    if (tk() !== lastDay) { lastDay = tk(); store.update((st) => settle(st)); flushFeedback(); }
     render();
   });
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-store.on(() => { /* status pill updates on next render */ });
+// Everything that must stay in step with the data runs here, once per change.
+store.beforeCommit = (st) => {
+  E.migrateShop(st);
+  C.sync(st);
+  A.evaluate(st);
+};
+const applyFx = () => FX.configure({ enabled: () => g().settings.fxEnabled !== false, haptics: () => g().settings.haptics !== false });
+applyFx();
 boot();

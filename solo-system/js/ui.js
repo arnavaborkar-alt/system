@@ -1,6 +1,11 @@
 import { store, todayKey, addDays, daysBetween, dueDay } from './store.js';
 import { RANKS, STATS, STAT_LABEL, rankClass } from './config.js';
 import * as E from './engine.js';
+import { icon } from './icons.js';
+import * as C from './challenges.js';
+import * as A from './achievements.js';
+import * as FX from './fx.js';
+import { SHOP_CATS } from './config.js';
 import { GOALS, SKILLS, EQUIPMENT, FOCUS, AVOID, LIFTING, PISTOL, DEFAULT_PROFILE, cleanProfile, buildPlan } from './planner.js';
 
 export const ui = {
@@ -9,6 +14,8 @@ export const ui = {
   showWelcome: false, welcomeMode: 'choose', welcomeError: '', welcomeBusy: false,
   tutorialOpen: false, tutorialStep: 0,
   planner: null,   // { step, profile, result } while the Find-my-plan form is open
+  prev: null,      // last drawn numbers, so the bar and gold can animate to the new ones
+  lastTab: null, achFilter: 'All',
 };
 
 /* ---------- helpers ---------- */
@@ -93,15 +100,35 @@ export function levelUpWindow(level) {
   document.querySelector('.levelup')?.remove();
   const el = document.createElement('div');
   el.className = 'levelup levelup-notice';
-  el.innerHTML = `<div class="card">
+  el.innerHTML = `<div class="rays"></div><div class="card lvcard">
     <div class="eyebrow">Notification</div>
-    <p style="margin:14px 0 6px;font-family:var(--b);font-size:15px;color:var(--muted)">You have leveled up.</p>
-    <div class="big">LV ${level}</div>
-    <div style="margin-top:10px;color:var(--mana);letter-spacing:.12em;text-transform:uppercase;font-size:12px">${h(t.title)}</div>
-    <button style="margin-top:22px;width:100%" data-act="close-levelup">Accept</button>
+    <p style="margin:14px 0 4px;font-family:var(--b);font-size:15px;color:var(--muted)">You have leveled up.</p>
+    <div class="lvring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52"/></svg><div class="big num" id="lvnum">${Math.max(1, level - 1)}</div></div>
+    <div class="lvtitle">${h(t.title)}</div>
+    <button class="primary" style="margin-top:22px;width:100%" data-act="close-levelup">Accept</button>
   </div>`;
   el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
   document.body.appendChild(el);
+  setTimeout(() => { const n = el.querySelector('#lvnum'); if (n) n.textContent = level; }, 380);
+  FX.haptic('big');
+  FX.burst(innerWidth / 2, innerHeight / 2 - 30, { color: 'var(--glow)', count: 26, big: true });
+  FX.coinShower(12);
+}
+
+const TIER_COL = { bronze: '#C98B5A', silver: '#B8C7E6', gold: '#F5C542', legend: '#FF9E4A' };
+
+/** Slides in from the top when an achievement unlocks. */
+export function achievementBanner(ev) {
+  const stack = document.getElementById('notify');
+  if (!stack) return;
+  const el = document.createElement('div');
+  el.className = `notify ach ${ev.tier}`;
+  el.innerHTML = `<div class="ach-ico" style="color:${TIER_COL[ev.tier]}">${icon('trophy', 26)}</div>
+    <div><div class="k">Achievement \u00b7 ${h(ev.tier)}</div><div class="v">${h(ev.name)}</div>
+    <div class="tiny" style="color:var(--muted);margin-top:2px">+${ev.gold}g \u00b7 +${ev.xp} XP${ev.title ? ` \u00b7 title: ${h(ev.title)}` : ''}</div></div>`;
+  stack.appendChild(el);
+  FX.haptic('good');
+  setTimeout(() => { el.style.transition = 'opacity .3s, transform .3s'; el.style.opacity = '0'; el.style.transform = 'translateY(-8px)'; setTimeout(() => el.remove(), 320); }, 4200);
 }
 
 /* ============================================================
@@ -121,28 +148,67 @@ function boostBanner() {
   </div>`;
 }
 
+const RING_R = 29;
+const RING_C = 2 * Math.PI * RING_R;
+const ringOffset = (pct) => (RING_C * (1 - Math.max(0, Math.min(100, pct)) / 100)).toFixed(1);
+
+export function levelRing(level, pct, size = 68) {
+  return `<div class="ring" style="width:${size}px;height:${size}px">
+    <svg viewBox="0 0 68 68" width="${size}" height="${size}">
+      <circle class="trk" cx="34" cy="34" r="${RING_R}"/>
+      <circle class="bar" cx="34" cy="34" r="${RING_R}" stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${ringOffset(pct)}" transform="rotate(-90 34 34)"/>
+    </svg>
+    <div class="lv"><b>${level}</b><span>LV</span></div></div>`;
+}
+
 function statusBar() {
   const s = g();
   const p = E.levelProgress(s.xp);
   const t = E.hunterTitle(p.level);
   const off = E.isDayOff(s, tk());
   const label = { cloud: 'synced', local: 'this device', offline: 'offline', nocloud: 'no database', badkey: 'wrong key' }[store.status] || store.status;
+  const title = A.equippedTitle(s, t.title);
 
-  return `${boostBanner()}<div class="status">
+  return `${boostBanner()}<div class="status hero">
     <div class="status-top">
-      <div class="lvl-badge"><div><b>${p.level}</b><span>LV</span></div></div>
-      <div>
+      ${levelRing(p.level, p.pct)}
+      <div class="who">
         <div class="name">${h(s.settings.hunterName || 'Hunter')}</div>
-        <div class="title">${h(t.title)}</div>
+        <div class="title">${h(title)}</div>
+        ${title !== t.title ? `<div class="rk">${h(t.title)}</div>` : ''}
       </div>
-      <div class="purse"><b class="num">${Math.round(s.gold).toLocaleString()}</b><span>GOLD</span></div>
+      <div class="purse"><div class="gold-pill">${icon('coin', 15)}<b class="num" data-count="gold">${Math.round(s.gold).toLocaleString()}</b></div>
+        <span>${E.xpToday(s) ? `+${E.xpToday(s)} XP today` : 'GOLD'}</span></div>
     </div>
     <div class="xpbar"><i style="width:${Math.max(0, Math.min(100, p.pct)).toFixed(1)}%"></i></div>
     <div class="xp-meta">
-      <span>${p.cur} / ${p.need} XP${E.xpToday(s) ? ` · +${E.xpToday(s)} today` : ''}</span>
+      <span class="num">${p.cur.toLocaleString()} / ${p.need.toLocaleString()} XP</span>
       <span class="sync"><i class="${store.status}"></i>${h(label)}${off ? ' \u00b7 DAY OFF' : ''}</span>
     </div>
   </div>`;
+}
+
+/** After a redraw: animate the ring/bar from where they were, and count the gold up. */
+function animateStatus() {
+  const s = g();
+  const p = E.levelProgress(s.xp);
+  const now = { level: p.level, pct: p.pct, gold: Math.round(s.gold) };
+  const prev = ui.prev;
+  ui.prev = now;
+  const goldEl = document.querySelector('[data-count="gold"]');
+  if (!prev) return;
+  if (prev.level === now.level) {
+    const bar = document.querySelector('.status .ring .bar');
+    const fill = document.querySelector('.status .xpbar i');
+    if (bar && Math.abs(prev.pct - now.pct) > 0.2) {
+      bar.style.strokeDashoffset = ringOffset(prev.pct);
+      fill.style.width = `${prev.pct.toFixed(1)}%`;
+      void bar.getBoundingClientRect();
+      bar.style.strokeDashoffset = ringOffset(now.pct);
+      fill.style.width = `${now.pct.toFixed(1)}%`;
+    }
+  }
+  if (goldEl && prev.gold !== now.gold) FX.countUp(goldEl, prev.gold, now.gold, 700);
 }
 
 /* ============================================================
@@ -175,6 +241,137 @@ function todayCard() {
       ${tile('gym', gymLabel, 'training', st.gymDone || !st.gymScheduled)}
     </div>
     ${perfect}
+  </div>`;
+}
+
+/* ============================================================
+   CHALLENGES (shared by the Hunter tab and the quests teaser)
+   ============================================================ */
+const PERIOD_LABEL = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+
+function leftText(p) {
+  const ms = Math.max(0, C.periodEndsAt(p, g()) - Date.now());
+  const d = Math.floor(ms / 864e5), hr = Math.floor((ms % 864e5) / 36e5), m = Math.floor((ms % 36e5) / 6e4);
+  return d ? `${d}d ${hr}h left` : `${hr}h ${String(m).padStart(2, '0')}m left`;
+}
+
+function chRow(p, ch, c, compact = false) {
+  const s = g();
+  const have = C.progressOf(s, c, p, ch.key);
+  const done = have >= c.target;
+  const pct = Math.min(100, (have / c.target) * 100);
+  const state = c.claimed ? 'claimed' : done ? 'ready' : '';
+  const action = c.claimed ? `<span class="chk">${icon('check', 18)}</span>`
+    : done ? (compact ? '<span class="pill on">ready</span>' : `<button class="primary sm" data-act="claim-ch" data-p="${p}" data-id="${c.id}">Claim</button>`)
+    : (!compact && (s.rerolls || 0) > 0 ? `<button class="ghost sm icon-btn" data-act="reroll-ch" data-p="${p}" data-id="${c.id}" title="Reroll (uses 1 token)" aria-label="Reroll">${icon('reroll', 15)}</button>` : '');
+  return `<div class="ch ${state}">
+    <div class="ch-ico">${icon(C.iconOf(c.metric), 18)}</div>
+    <div class="ch-body">
+      <div class="ch-t">${h(C.labelOf(c))}</div>
+      <div class="ch-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <div class="ch-s"><span class="num">${Math.min(have, c.target).toLocaleString()} / ${c.target.toLocaleString()}</span>
+        <span class="num rw">+${c.rewardGold}g · +${c.rewardXp} XP</span></div>
+    </div>
+    <div class="ch-act">${action}</div>
+  </div>`;
+}
+
+function challengeBlock(p) {
+  const s = g();
+  const ch = s.challenges?.[p];
+  if (!ch) return '';
+  const ready = ch.items.filter((c) => !c.claimed && C.isDone(s, c, p, ch.key)).length;
+  return `<div class="window">
+    <div class="window-title"><h2>${PERIOD_LABEL[p]}</h2>
+      ${ready ? `<span class="pill on">${ready} ready</span>` : ''}
+      <span class="count">${leftText(p)}</span></div>
+    ${ch.items.length ? ch.items.map((c) => chRow(p, ch, c)).join('')
+      : '<div class="tiny muted" style="padding:4px 0 2px">Day off. Nothing to chase today.</div>'}
+  </div>`;
+}
+
+function challengeTeaser() {
+  const s = g();
+  if (!s.settings.challengesEnabled) return '';
+  const ch = s.challenges?.daily;
+  if (!ch?.items.length) return '';
+  const left = ch.items.filter((c) => !c.claimed).length;
+  const ready = ch.items.filter((c) => !c.claimed && C.isDone(s, c, 'daily', ch.key)).length;
+  return `<div class="window flat teaser" data-tab="hunter" role="button" tabindex="0">
+    <div class="window-title" style="margin-bottom:6px;padding-bottom:8px"><h2>Daily challenges</h2>
+      <span class="count">${ready ? `${ready} ready to claim` : left ? `${left} left` : 'all claimed'}</span></div>
+    ${ch.items.map((c) => chRow('daily', ch, c, true)).join('')}
+  </div>`;
+}
+
+/* ============================================================
+   HUNTER TAB — profile, titles, challenges, achievements
+   ============================================================ */
+function achCard(a) {
+  const s = g();
+  const have = Math.min(s.counters?.[a.counter] || 0, a.need);
+  const on = !!s.achievements?.[a.id];
+  const pct = (have / a.need) * 100;
+  const t = A.TIERS[a.tier];
+  return `<div class="ach-card ${a.tier} ${on ? 'on' : ''}">
+    <div class="badge" style="--tc:${TIER_COL[a.tier]}">${icon(on ? a.icon : 'lock', 22)}</div>
+    <div class="ach-n">${h(a.name)}</div>
+    <div class="ach-d">${h(a.desc)}</div>
+    ${on ? `<div class="ach-r num">${t.label}${a.title ? ` · title` : ''}</div>`
+      : `<div class="ch-bar thin"><i style="width:${pct.toFixed(1)}%"></i></div><div class="ach-r num">${have.toLocaleString()} / ${a.need.toLocaleString()} · +${t.gold}g</div>`}
+  </div>`;
+}
+
+function hunterTab() {
+  const s = g();
+  const p = E.levelProgress(s.xp);
+  const rank = E.hunterTitle(p.level);
+  const title = A.equippedTitle(s, rank.title);
+  const owned = A.ownedTitles(s);
+  const c = s.counters || {};
+  const total = A.LIST.length, got = A.unlockedCount(s);
+
+  const filters = ['All', 'Unlocked', 'Locked', ...A.GROUP_NAMES];
+  const list = A.LIST.filter((a) => {
+    const on = !!s.achievements?.[a.id];
+    if (ui.achFilter === 'All') return true;
+    if (ui.achFilter === 'Unlocked') return on;
+    if (ui.achFilter === 'Locked') return !on;
+    return a.group === ui.achFilter;
+  });
+
+  return `<div class="wrap">
+    <div class="window profile">
+      <div class="prof-top">${levelRing(p.level, p.pct, 84)}
+        <div><div class="disp prof-name">${h(s.settings.hunterName || 'Hunter')}</div>
+          <div class="prof-title">${h(title)}</div>
+          <div class="tiny muted">${h(rank.title)} · ${p.cur.toLocaleString()} / ${p.need.toLocaleString()} XP</div></div></div>
+      <div class="stats" style="margin-top:14px">${STATS.map((k) => `<div class="stat"><b>${s.stats[k] || 0}</b><span>${k}</span></div>`).join('')}</div>
+      <div class="facts">
+        <div><b class="num">${(c.quests || 0).toLocaleString()}</b><span>quests</span></div>
+        <div><b class="num">${(c.sessions || 0).toLocaleString()}</b><span>sessions</span></div>
+        <div><b class="num">${s.questStreak || 0}</b><span>day streak</span></div>
+        <div><b class="num">${got}/${total}</b><span>awards</span></div>
+      </div>
+      ${(s.streakShields || 0) || (s.rerolls || 0) ? `<div class="tiny muted" style="margin-top:12px">Holding: ${s.streakShields ? `${s.streakShields} streak shield${s.streakShields > 1 ? 's' : ''}` : ''}${s.streakShields && s.rerolls ? ' · ' : ''}${s.rerolls ? `${s.rerolls} reroll${s.rerolls > 1 ? 's' : ''}` : ''}</div>` : ''}
+    </div>
+
+    <div class="window">
+      <div class="window-title"><h2>Title</h2><span class="count">${owned.length} earned</span></div>
+      <div class="chips">
+        <button class="chip ${!s.title || !owned.some((t) => t.id === s.title) ? 'on' : ''}" data-act="equip-title" data-t="">${h(rank.title)}</button>
+        ${owned.map((t) => `<button class="chip ${s.title === t.id ? 'on' : ''}" data-act="equip-title" data-t="${h(t.id)}">${h(t.name)}</button>`).join('')}
+      </div>
+      ${owned.length ? '' : '<div class="tiny muted" style="margin-top:10px">Titles come from achievements. Earn one and it shows up here.</div>'}
+    </div>
+
+    ${s.settings.challengesEnabled ? `<h2 class="sect">Challenges</h2>
+      ${C.PERIODS.map(challengeBlock).join('')}
+      <div class="tiny muted" style="margin:-4px 2px 16px">Targets scale with your level and are fixed when the period starts. Finished ones pay out on their own if you forget to claim.${(s.rerolls || 0) ? '' : ' Rerolls are in the shop.'}</div>` : ''}
+
+    <h2 class="sect">Achievements <span class="num">${got}/${total}</span></h2>
+    <div class="chips scroll" style="margin-bottom:12px">${filters.map((f) => `<button class="chip ${ui.achFilter === f ? 'on' : ''}" data-act="ach-filter" data-f="${h(f)}">${h(f)}</button>`).join('')}</div>
+    <div class="ach-grid">${list.map(achCard).join('') || '<div class="empty tiny">Nothing here yet.</div>'}</div>
   </div>`;
 }
 
@@ -237,6 +434,7 @@ function questsTab() {
 
   return `<div class="wrap">
     ${ui.selecting ? '' : todayCard()}
+    ${ui.selecting ? '' : challengeTeaser()}
     ${ui.selecting ? `<div class="selbar">
         <button class="sm ghost" data-act="sel-all">${ui.selected?.size === open.length && open.length ? 'None' : 'All'}</button>
         <span class="num">${ui.selected?.size || 0} selected</span>
@@ -575,11 +773,11 @@ function shopTab() {
     const locked = cd > 0 || broke;
     const need = it.price - s.gold;
     return `<div class="shop-item ${locked ? 'locked' : ''}">
-      <div class="sigil">${h(it.icon || '\u25c8')}</div>
+      <div class="sigil">${icon(it.icon || 'gift', 21)}</div>
       <div class="body" style="flex:1;min-width:0">
         <div class="t">${h(it.name)}</div>
         <div class="s tiny muted">${h(it.desc)}</div>
-        ${cd > 0 ? `<div class="tiny" style="color:var(--danger);margin-top:3px">Locked ${cd} more day${cd === 1 ? '' : 's'}</div>` : ''}
+        ${cd > 0 ? `<div class="tiny" style="color:var(--danger);margin-top:3px">Available in ${cd} day${cd === 1 ? '' : 's'}</div>` : ''}
       </div>
       <div style="text-align:right">
         <div class="price">${it.price.toLocaleString()}g</div>
@@ -589,6 +787,14 @@ function shopTab() {
     </div>`;
   };
 
+  const cats = [...SHOP_CATS, ...new Set(s.shop.map((i) => i.cat || 'Other').filter((c) => !SHOP_CATS.includes(c)))];
+  const groups = cats.map((cat) => [cat, s.shop.filter((i) => (i.cat || 'Other') === cat)]).filter(([, l]) => l.length);
+  const bag = [
+    (s.rerolls || 0) ? `${s.rerolls} reroll${s.rerolls > 1 ? 's' : ''}` : '',
+    (s.streakShields || 0) ? `${s.streakShields} streak shield${s.streakShields > 1 ? 's' : ''}` : '',
+    (s.habitSkips || 0) ? `${s.habitSkips} habit skip${s.habitSkips > 1 ? 's' : ''}` : '',
+  ].filter(Boolean).join(' \u00b7 ');
+
   const active = (s.daysOff || []).filter((d) => d >= today).sort();
   const recent = s.purchases.slice(0, 8);
   const week = s.ledger.filter((l) => l.delta > 0 && daysBetween(l.at.slice(0, 10), today) <= 7).reduce((a, l) => a + l.delta, 0);
@@ -596,13 +802,14 @@ function shopTab() {
   return `<div class="wrap">
     <div class="window">
       <div class="window-title"><h2>Balance</h2><span class="count">last 7 days: +${Math.round(week).toLocaleString()}g</span></div>
-      <div style="font-family:var(--m);font-size:34px;color:var(--gold);text-shadow:0 0 24px rgba(245,197,66,.3)">${Math.round(s.gold).toLocaleString()}</div>
+      <div class="bigbal">${icon('coin', 28)}<span class="num">${Math.round(s.gold).toLocaleString()}</span></div>
+      ${bag ? `<div class="tiny muted" style="margin-top:8px">In your bag: ${bag}</div>` : ''}
       ${active.length ? `<div class="tiny" style="color:var(--gold);margin-top:8px">Days off booked: ${active.map((d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })).join(', ')}</div>` : ''}
     </div>
-    <div class="window">
-      <div class="window-title"><h2>Shop</h2><span class="count">${s.shop.length} items</span></div>
-      ${s.shop.map(item).join('')}
-    </div>
+    ${groups.map(([cat, list]) => `<div class="window">
+      <div class="window-title"><h2>${h(cat)}</h2><span class="count">${list.length}</span></div>
+      ${list.map(item).join('')}
+    </div>`).join('')}
     ${recent.length ? `<details class="acc"><summary>Purchase history</summary><div>
       ${recent.map((p) => `<div class="row"><div class="body"><div class="t tiny">${h(p.name)}</div>
         <div class="s">${new Date(p.at).toLocaleDateString()}${p.covers ? ` \u00b7 covers ${p.covers.length}d` : ''}</div></div>
@@ -696,6 +903,21 @@ function settingsTab() {
       <button class="sm" style="margin-top:8px" data-act="add-cw">+ Course</button>
     </div></details>
 
+    <details class="acc" ${ui.open === 'challenges' ? 'open' : ''}><summary>Challenges &amp; effects</summary><div>
+      <div class="field"><label>Challenges</label>
+        <div class="seg"><button class="${st.challengesEnabled ? 'on' : ''}" data-set-val="challengesEnabled" data-v="true">On</button>
+        <button class="${!st.challengesEnabled ? 'on' : ''}" data-set-val="challengesEnabled" data-v="false">Off</button></div></div>
+      <div class="field"><label>Challenge difficulty</label>
+        <div class="seg">${[['0.7', 'Easy'], ['1', 'Normal'], ['1.3', 'Hard']].map(([v, l]) => `<button class="${String(st.challengeScale) === v ? 'on' : ''}" data-set-val="challengeScale" data-v="${v}">${l}</button>`).join('')}</div>
+        <div class="tiny muted" style="margin-top:5px">Applies to challenges created from now on. Harder ones pay a bit more.</div></div>
+      <div class="field"><label>Visual effects</label>
+        <div class="seg"><button class="${st.fxEnabled ? 'on' : ''}" data-set-val="fxEnabled" data-v="true">On</button>
+        <button class="${!st.fxEnabled ? 'on' : ''}" data-set-val="fxEnabled" data-v="false">Off</button></div></div>
+      <div class="field"><label>Vibration</label>
+        <div class="seg"><button class="${st.haptics ? 'on' : ''}" data-set-val="haptics" data-v="true">On</button>
+        <button class="${!st.haptics ? 'on' : ''}" data-set-val="haptics" data-v="false">Off</button></div></div>
+    </div></details>
+
     <details class="acc" ${ui.open === 'gym' ? 'open' : ''}><summary>Gym plan</summary><div>
       <button class="gold" style="width:100%;margin-bottom:14px" data-act="planner-open">${s.gymProfile ? 'Rebuild my plan' : 'Find my plan'}</button>
       <div class="grid2">
@@ -730,7 +952,7 @@ function settingsTab() {
         <input value="${h(it.desc)}" data-shop="${i}.desc" placeholder="What it gets you">
         <div class="editrow" style="border:0">
           <select data-shop="${i}.grantType" style="flex:1">
-            ${[['', 'No auto-effect'], ['dayOff', 'Books days off'], ['gymRest', 'Free gym rest day'], ['habitSkip', 'Habit skip pass']]
+            ${[['', 'No auto-effect'], ['dayOff', 'Books days off'], ['gymRest', 'Free gym rest day'], ['habitSkip', 'Habit skip pass'], ['boost', 'Gold & XP boost'], ['streakShield', 'Streak shield'], ['reroll', 'Challenge reroll']]
               .map(([v, l]) => `<option value="${v}" ${(it.grants?.type || '') === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <input class="num-in w" type="number" value="${it.grants?.days || it.grants?.n || 1}" data-shop="${i}.grantN" title="How many">
@@ -832,12 +1054,13 @@ function getPath(o, p) { return p.split('.').reduce((a, k) => (a == null ? a : a
    SHELL
    ============================================================ */
 const TABS = [
-  ['quests', '\u25c8', 'Quests'],
-  ['calendar', '\u25a6', 'Month'],
-  ['gym', '\u2694', 'Gym'],
-  ['habits', '\u25c9', 'Habits'],
-  ['shop', '\u25c6', 'Shop'],
-  ['settings', '\u2699', 'System'],
+  ['quests', 'quests', 'Quests'],
+  ['calendar', 'month', 'Month'],
+  ['gym', 'gym', 'Gym'],
+  ['habits', 'habits', 'Habits'],
+  ['hunter', 'hunter', 'Hunter'],
+  ['shop', 'shop', 'Shop'],
+  ['settings', 'system', 'System'],
 ];
 
 /* ============================================================
@@ -1040,14 +1263,20 @@ export function render() {
   const openQ = Object.values(s.quests).filter((q) => !q.done && !q.missed && !q.dismissed && dueDay(q) && dueDay(q) <= today).length;
   const dueH = E.habitsFor(s, today).filter((x) => !s.habitLog[today]?.[x.id]).length;
 
-  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, shop: shopTab, settings: settingsTab }[ui.tab] || questsTab;
+  const body = { quests: questsTab, calendar: calendarTab, gym: gymTab, habits: habitsTab, hunter: hunterTab, shop: shopTab, settings: settingsTab }[ui.tab] || questsTab;
   const bodyHtml = typeof body === 'function' ? body() : body;
 
   document.body.classList.toggle('boosted', E.boostFor(s, today) > 1);
+  const entering = ui.lastTab !== ui.tab;
+  ui.lastTab = ui.tab;
   document.getElementById('app').innerHTML = statusBar() + bodyHtml;
+  if (entering) document.querySelector('#app .wrap')?.classList.add('enter');
+  animateStatus();
+  const claim = C.claimable(s);
   document.getElementById('tabs').innerHTML = TABS.map(([k, ico, label]) => {
     const n = k === 'quests' ? openQ : k === 'habits' ? dueH : 0;
+    const pip = k === 'hunter' && claim ? '<span class="dot gold">' + claim + '</span>' : n ? `<span class="dot">${n}</span>` : '';
     return `<button class="${ui.tab === k ? 'on' : ''}" data-tab="${k}">
-      <span class="ico">${ico}</span>${label}${n ? `<span class="dot">${n}</span>` : ''}</button>`;
+      <span class="ico">${icon(ico, 22)}</span><span class="lbl">${label}</span>${pip}</button>`;
   }).join('');
 }

@@ -79,6 +79,12 @@ export const DEFAULT_SETTINGS = {
   shop: { refundPct: 0, allowNegativeGold: false },
 
   theme: { accent: '#38BDF8', gold: '#F5C542' },
+
+  // ---- Challenges & feedback ----
+  challengesEnabled: true,
+  challengeScale: 1,        // 0.7 easy, 1 normal, 1.3 hard. Bigger targets pay more.
+  fxEnabled: true,          // particles, floating numbers, count-ups
+  haptics: true,            // short vibration on phones
 };
 
 /* ============================================================
@@ -272,18 +278,49 @@ export const DEFAULT_PLANS = {
    DEFAULT SHOP
    Prices assume ~250-450 gold/day when you're actually consistent.
    cooldownDays stops you stacking rewards back to back.
+   `icon` is a name from icons.js (anything else is shown as typed).
+   `cat` groups the shop screen.
    ============================================================ */
+export const SHOP_VERSION = 2;
+export const SHOP_CATS = ['Treats', 'Power-ups', 'Time off', 'Big rewards'];
+
 export const DEFAULT_SHOP = [
-  { id: 's1', name: 'Skip one habit', desc: 'Clear a single habit without doing it. No penalty.', price: 250, cooldownDays: 2, icon: '◈', grants: { type: 'habitSkip', n: 1 } },
-  { id: 's2', name: 'Cheat meal', desc: 'Whatever you want, guilt-free.', price: 400, cooldownDays: 3, icon: '◆', grants: null },
-  { id: 's3', name: 'Rest day (gym)', desc: 'Skip one training day. Streak stays alive.', price: 550, cooldownDays: 5, icon: '◇', grants: { type: 'gymRest', days: 1 } },
-  { id: 's4', name: '2 hours of gaming', desc: 'Blocked-off time, nothing owed.', price: 700, cooldownDays: 2, icon: '⬗', grants: null },
-  { id: 's5', name: 'Late night pass', desc: 'Stay up as late as you want, once.', price: 900, cooldownDays: 7, icon: '☾', grants: null },
-  { id: 's9', name: 'Double gold & XP', desc: 'Everything you clear for one day pays twice. Not usable on a day off.', price: 1200, cooldownDays: 5, icon: '✦', grants: { type: 'boost', days: 1, mult: 2 } },
-  { id: 's6', name: 'Full day off', desc: 'No quests, no training, no habits. Nothing counts against you.', price: 3500, cooldownDays: 14, icon: '★', grants: { type: 'dayOff', days: 1 } },
-  { id: 's7', name: 'Weekend off', desc: 'Two consecutive days, fully clear.', price: 6000, cooldownDays: 30, icon: '✦', grants: { type: 'dayOff', days: 2 } },
-  { id: 's8', name: 'Vacation week', desc: 'Seven days off. Everything pauses, nothing decays.', price: 20000, cooldownDays: 120, icon: '✵', grants: { type: 'dayOff', days: 7 } },
+  // ---- treats ----
+  { id: 'n1', cat: 'Treats', name: 'Snack run', desc: 'Something small and good. No guilt.', price: 120, cooldownDays: 1, icon: 'fork', grants: null },
+  { id: 'n2', cat: 'Treats', name: 'Boba or coffee', desc: 'Your usual order, on the System.', price: 150, cooldownDays: 1, icon: 'gift', grants: null },
+  { id: 's2', cat: 'Treats', name: 'Cheat meal', desc: 'Whatever you want, guilt-free.', price: 280, cooldownDays: 3, icon: 'fork', grants: null },
+  { id: 'n3', cat: 'Treats', name: 'Sleep in', desc: 'One morning with no alarm.', price: 350, cooldownDays: 5, icon: 'bed', grants: null },
+  { id: 'n4', cat: 'Treats', name: 'Movie night', desc: 'A full evening, nothing owed.', price: 420, cooldownDays: 4, icon: 'film', grants: null },
+  { id: 's4', cat: 'Treats', name: '2 hours of gaming', desc: 'Blocked-off time, nothing owed.', price: 490, cooldownDays: 2, icon: 'pad', grants: null },
+  { id: 's5', cat: 'Treats', name: 'Late night pass', desc: 'Stay up as late as you want, once.', price: 630, cooldownDays: 7, icon: 'moon', grants: null },
+
+  // ---- power-ups ----
+  { id: 's1', cat: 'Power-ups', name: 'Skip one habit', desc: 'Clear a single habit without doing it. No penalty.', price: 175, cooldownDays: 2, icon: 'skip', grants: { type: 'habitSkip', n: 1 } },
+  { id: 'n5', cat: 'Power-ups', name: 'Challenge reroll', desc: 'Swap one challenge for a different one. Keeps until used.', price: 200, cooldownDays: 0, icon: 'reroll', grants: { type: 'reroll', n: 1 } },
+  { id: 'n6', cat: 'Power-ups', name: 'Streak shield', desc: 'Saves your quest streak the next time you miss a day.', price: 300, cooldownDays: 3, icon: 'shield', grants: { type: 'streakShield', n: 1 } },
+  { id: 's3', cat: 'Power-ups', name: 'Rest day (gym)', desc: 'Skip one training day. Streak stays alive.', price: 385, cooldownDays: 5, icon: 'bed', grants: { type: 'gymRest', days: 1 } },
+  { id: 'n7', cat: 'Power-ups', name: '1.5\u00d7 gold & XP', desc: 'Everything you clear for one day pays 50% more.', price: 600, cooldownDays: 3, icon: 'bolt', grants: { type: 'boost', days: 1, mult: 1.5 } },
+  { id: 's9', cat: 'Power-ups', name: 'Double gold & XP', desc: 'Everything you clear for one day pays twice. Not usable on a day off.', price: 840, cooldownDays: 5, icon: 'sparkle', grants: { type: 'boost', days: 1, mult: 2 } },
+  { id: 'n8', cat: 'Power-ups', name: 'Triple gold & XP', desc: 'One day at 3\u00d7. Save it for your heaviest day.', price: 2200, cooldownDays: 10, icon: 'flame', grants: { type: 'boost', days: 1, mult: 3 } },
+
+  // ---- time off ----
+  { id: 's6', cat: 'Time off', name: 'Full day off', desc: 'No quests, no training, no habits. Nothing counts against you.', price: 2450, cooldownDays: 14, icon: 'star', grants: { type: 'dayOff', days: 1 } },
+  { id: 's7', cat: 'Time off', name: 'Weekend off', desc: 'Two consecutive days, fully clear.', price: 4200, cooldownDays: 30, icon: 'moon', grants: { type: 'dayOff', days: 2 } },
+  { id: 's8', cat: 'Time off', name: 'Vacation week', desc: 'Seven days off. Everything pauses, nothing decays.', price: 14000, cooldownDays: 120, icon: 'crown', grants: { type: 'dayOff', days: 7 } },
+
+  // ---- big rewards (edit these to whatever you are actually saving for) ----
+  { id: 'n9', cat: 'Big rewards', name: 'Day out', desc: 'Pick somewhere to go. Friends, food, the whole thing.', price: 1800, cooldownDays: 14, icon: 'flag', grants: null },
+  { id: 'n10', cat: 'Big rewards', name: 'New game', desc: 'Buy the game you have been eyeing.', price: 3000, cooldownDays: 30, icon: 'pad', grants: null },
+  { id: 'n11', cat: 'Big rewards', name: 'Gear upgrade', desc: 'Clothes, shoes or kit. Something you will use.', price: 4500, cooldownDays: 45, icon: 'gem', grants: null },
 ];
+
+/** What the shop looked like before version 2, so the migration only touches
+ *  prices and icons you never changed yourself. */
+export const OLD_SHOP = {
+  s1: { price: 250, icon: '\u25c8' }, s2: { price: 400, icon: '\u25c6' }, s3: { price: 550, icon: '\u25c7' },
+  s4: { price: 700, icon: '\u2b17' }, s5: { price: 900, icon: '\u263e' }, s9: { price: 1200, icon: '\u2726' },
+  s6: { price: 3500, icon: '\u2605' }, s7: { price: 6000, icon: '\u2726' }, s8: { price: 20000, icon: '\u2735' },
+};
 
 /* ============================================================
    DEFAULT HABITS
