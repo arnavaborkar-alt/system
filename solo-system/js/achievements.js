@@ -20,9 +20,9 @@ export const TIERS = {
 const GROUPS = [
   ['quests', 'Quests', 'quests', 'quests cleared', [
     [1, 'First Blood', 'bronze'], [10, 'Gate Crasher', 'bronze'], [50, 'Dungeon Regular', 'silver', 'Dungeon Regular'],
-    [100, 'Centurion', 'silver'], [250, 'Veteran Hunter', 'gold', 'Veteran'], [500, 'Gatebreaker', 'gold'], [1000, 'Thousand Gates', 'legend', 'Gate Eater']]],
+    [100, 'Centurion', 'silver'], [250, 'Veteran', 'gold', 'Veteran'], [500, 'Gatebreaker', 'gold'], [1000, 'Thousand Gates', 'legend', 'Gate Eater']]],
   ['S', 'Slayer', 'sword', 'S-rank quests cleared', [
-    [1, 'Beyond Elite', 'silver'], [5, 'Boss Hunter', 'silver'], [25, 'Raid Leader', 'gold', 'Raid Leader'],
+    [1, 'Beyond Elite', 'silver'], [5, 'Boss Slayer', 'silver'], [25, 'Raid Leader', 'gold', 'Raid Leader'],
     [50, 'S-Rank Specialist', 'gold'], [100, 'Calamity', 'legend', 'Calamity']]],
   ['A', 'Heavy hitter', 'target', 'A-rank quests cleared', [
     [1, 'Rising Threat', 'bronze'], [10, 'Heavy Hitter', 'silver'], [50, 'Elite Striker', 'gold', 'Striker']]],
@@ -41,7 +41,7 @@ const GROUPS = [
     [30, 'Unbroken', 'gold', 'Unbroken'], [60, 'Relentless', 'gold'], [100, 'Century Streak', 'legend', 'Relentless']]],
   ['level', 'Levels', 'crown', 'level reached', [
     [5, 'Awakened', 'bronze', 'Awakened'], [10, 'Double Digits', 'bronze'], [20, 'Proven', 'silver'], [30, 'Seasoned', 'silver'],
-    [50, 'Half a Hundred', 'gold', 'Veteran Hunter'], [75, 'Apex', 'gold'], [100, 'Centennial', 'legend', 'Shadow Monarch'], [150, 'Beyond Limits', 'legend']]],
+    [50, 'Half a Hundred', 'gold', 'Elite'], [75, 'Apex', 'gold'], [100, 'Centennial', 'legend', 'Shadow Monarch'], [150, 'Beyond Limits', 'legend']]],
   ['gold', 'Wealth', 'coin', 'gold earned, lifetime', [
     [1000, 'First Fortune', 'bronze'], [5000, 'Well Funded', 'silver'], [20000, 'Treasury', 'gold', 'Treasurer'], [100000, 'Dragon Hoard', 'legend']]],
   ['purchases', 'Shopper', 'bag', 'items bought', [

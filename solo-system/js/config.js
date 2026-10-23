@@ -10,7 +10,7 @@ export const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S+'];
 export const rankClass = (r) => (r === 'S+' ? 'SS' : r);
 
 export const DEFAULT_SETTINGS = {
-  hunterName: 'Hunter',
+  hunterName: 'Player',
   schoolYearEnd: '2027-06-11',   // after this date the Summer plan takes over
   season: 'auto',                // 'auto' | 'school' | 'summer'
   dayResetHour: 4,               // a "day" rolls over at 4am, not midnight
@@ -115,17 +115,17 @@ export function levelForXp(xp) {
 }
 
 export const HUNTER_RANK_BY_LEVEL = [
-  { min: 1, rank: 'E', title: 'E-Rank Hunter' },
-  { min: 8, rank: 'D', title: 'D-Rank Hunter' },
-  { min: 16, rank: 'C', title: 'C-Rank Hunter' },
-  { min: 26, rank: 'B', title: 'B-Rank Hunter' },
-  { min: 38, rank: 'A', title: 'A-Rank Hunter' },
-  { min: 52, rank: 'S', title: 'S-Rank Hunter' },
-  { min: 70, rank: 'S+', title: 'National Level' },
-  { min: 95, rank: 'S+', title: 'Monarch' },
-  { min: 125, rank: 'S+', title: 'Absolute Monarch' },
-  { min: 160, rank: 'S+', title: 'Ruler' },
-  { min: 200, rank: 'S+', title: 'Sovereign' },
+  { min: 1, rank: 'E', title: 'Rank E' },
+  { min: 8, rank: 'D', title: 'Rank D' },
+  { min: 16, rank: 'C', title: 'Rank C' },
+  { min: 26, rank: 'B', title: 'Rank B' },
+  { min: 38, rank: 'A', title: 'Rank A' },
+  { min: 52, rank: 'S', title: 'Rank S' },
+  { min: 70, rank: 'S+', title: 'Rank S+' },
+  { min: 95, rank: 'S+', title: 'Rank S+' },
+  { min: 125, rank: 'S+', title: 'Rank S+' },
+  { min: 160, rank: 'S+', title: 'Rank S+' },
+  { min: 200, rank: 'S+', title: 'Rank S+' },
 ];
 
 /* ============================================================

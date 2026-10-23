@@ -174,7 +174,7 @@ function statusBar() {
     <div class="status-top">
       ${levelRing(p.level, p.pct)}
       <div class="who">
-        <div class="name">${h(s.settings.hunterName || 'Hunter')}</div>
+        <div class="name">${h(s.settings.hunterName || 'Player')}</div>
         <div class="title">${h(title)}</div>
         ${title !== t.title ? `<div class="rk">${h(t.title)}</div>` : ''}
       </div>
@@ -344,7 +344,7 @@ function hunterTab() {
   return `<div class="wrap">
     <div class="window profile">
       <div class="prof-top">${levelRing(p.level, p.pct, 84)}
-        <div><div class="disp prof-name">${h(s.settings.hunterName || 'Hunter')}</div>
+        <div><div class="disp prof-name">${h(s.settings.hunterName || 'Player')}</div>
           <div class="prof-title">${h(title)}</div>
           <div class="tiny muted">${h(rank.title)} · ${p.cur.toLocaleString()} / ${p.need.toLocaleString()} XP</div></div></div>
       <div class="stats" style="margin-top:14px">${STATS.map((k) => `<div class="stat"><b>${s.stats[k] || 0}</b><span>${k}</span></div>`).join('')}</div>
@@ -854,14 +854,14 @@ function settingsTab() {
         ['Corners', 'corners', [['cut', 'Cut'], ['round', 'Round'], ['square', 'Square']]],
         ['Density', 'density', [['comfy', 'Roomy'], ['compact', 'Compact']]],
         ['Text &amp; UI size', 'scale', [['0.9', 'Small'], ['1', 'Normal'], ['1.12', 'Large'], ['1.25', 'Huge']]],
-        ['Font', 'font', [['hunter', 'Hunter'], ['clean', 'Clean'], ['mono', 'Mono']]],
+        ['Font', 'font', [['hunter', 'Default'], ['clean', 'Clean'], ['mono', 'Mono']]],
         ['Background glow', 'haze', [['true', 'On'], ['false', 'Off']]],
         ['Background grid', 'grid', [['true', 'On'], ['false', 'Off']]],
       ].map(([label, k, opts]) => `<div class="field"><label>${label}</label><div class="seg">${opts.map(([v, l]) => `<button class="${String(look[k]) === v ? 'on' : ''}" data-act="look" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div></div>`).join('')}
       <button class="ghost" style="width:100%" data-act="look-reset">Reset look</button>
     </div></details>
 
-    <details class="acc" ${ui.open === 'hunter' ? 'open' : ''}><summary>Hunter</summary><div>
+    <details class="acc" ${ui.open === 'hunter' ? 'open' : ''}><summary>Player</summary><div>
       ${T('Name', 'hunterName')}
       ${T('School year ends', 'schoolYearEnd', 'date')}
       <div class="field"><label>Season</label>
@@ -985,7 +985,7 @@ function settingsTab() {
     </div></details>
 
     <details class="acc"><summary>Sync &amp; data</summary><div>
-      <div class="field"><label>Hunter key</label>
+      <div class="field"><label>Player key</label>
         <input type="password" id="hkey" value="${h(store.key)}" placeholder="your passphrase">
         <div class="tiny muted" style="margin-top:6px">Your own passphrase, listed in HUNTER_KEYS on Vercel. Everyone on this link uses a different one and gets a completely separate save \u2014 own gold, own quests, own plan. Leave it blank and the app still works, just on this device.</div>
       </div>
@@ -1000,7 +1000,7 @@ function settingsTab() {
 
     <details class="acc" ${ui.open === 'calendar-export' ? 'open' : ''}><summary>Export to another calendar</summary><div>
       <div class="tiny muted" style="margin-bottom:12px">A read-only feed of your open quest due dates, for subscribing to in Google Calendar, Apple Calendar, or anywhere else. This link can only ever show due dates \u2014 it can\u2019t read your gold or change anything, and it\u2019s separate from your hunter key, so it\u2019s fine to paste into another app.</div>
-      ${!store.key ? `<div class="tiny" style="color:var(--gold)">Connect your hunter key above first \u2014 this feed is built from your saved data.</div>`
+      ${!store.key ? `<div class="tiny" style="color:var(--gold)">Connect your player key above first \u2014 this feed is built from your saved data.</div>`
         : !s.settings.calendarToken ? `<button data-act="cal-generate">Create calendar link</button>`
         : `<div class="field"><label>Your link</label>
              <input readonly value="${h(window.location.origin)}/api/calendar?key=${h(s.settings.calendarToken)}" onclick="this.select()"></div>
@@ -1010,7 +1010,7 @@ function settingsTab() {
            </div>`}
     </div></details>
 
-    <div class="foot">SYSTEM \u00b7 ${h(s.settings.hunterName || 'Hunter')} \u00b7 since ${new Date(s.createdAt).toLocaleDateString()}</div>
+    <div class="foot">SYSTEM \u00b7 ${h(s.settings.hunterName || 'Player')} \u00b7 since ${new Date(s.createdAt).toLocaleDateString()}</div>
   </div>`;
 }
 
@@ -1079,7 +1079,7 @@ const TABS = [
   ['calendar', 'month', 'Month'],
   ['gym', 'gym', 'Gym'],
   ['habits', 'habits', 'Habits'],
-  ['hunter', 'hunter', 'Hunter'],
+  ['hunter', 'hunter', 'Player'],
   ['shop', 'shop', 'Shop'],
   ['settings', 'system', 'System'],
 ];
@@ -1094,7 +1094,7 @@ export function welcomeScreen() {
   if (ui.welcomeMode === 'signup') {
     return `<div class="wrap" style="padding-top:calc(env(safe-area-inset-top) + 24px)">
       <div class="window">
-        <div class="window-title"><h2>Create a hunter</h2></div>
+        <div class="window-title"><h2>Create a player</h2></div>
         ${err}
         <div class="field"><label>Name</label><input id="wf-name" placeholder="What should we call you"></div>
         <div class="field"><label>Email</label><input id="wf-email" type="email" placeholder="you@example.com"></div>
@@ -1102,7 +1102,7 @@ export function welcomeScreen() {
         <div class="field"><label>Passphrase (12+ characters)</label><input id="wf-pass" type="password" placeholder="something only you know"></div>
         <div class="field"><label>Confirm passphrase</label><input id="wf-pass2" type="password"></div>
         <div class="tiny muted" style="margin:-8px 0 14px">There's no way to recover this if you lose it \u2014 write it down somewhere.</div>
-        <button style="width:100%" data-act="welcome-signup" ${ui.welcomeBusy ? 'disabled' : ''}>${ui.welcomeBusy ? 'Creating\u2026' : 'Create hunter'}</button>
+        <button style="width:100%" data-act="welcome-signup" ${ui.welcomeBusy ? 'disabled' : ''}>${ui.welcomeBusy ? 'Creating\u2026' : 'Create player'}</button>
         <button class="ghost" style="width:100%;margin-top:8px" data-act="welcome-mode" data-mode="choose">Back</button>
       </div>
     </div>`;
@@ -1124,9 +1124,9 @@ export function welcomeScreen() {
   return `<div class="wrap" style="padding-top:calc(env(safe-area-inset-top) + 40px)">
     <div class="window" style="text-align:center">
       <div class="eyebrow">System</div>
-      <h2 style="font-size:22px;margin:8px 0 4px">Welcome, Hunter</h2>
+      <h2 style="font-size:22px;margin:8px 0 4px">Welcome, Player</h2>
       <p class="tiny muted" style="margin-bottom:20px">Quests pay gold. Gold buys days off. Training gets harder as you do.</p>
-      <button style="width:100%" class="gold" data-act="welcome-mode" data-mode="signup">Create a hunter</button>
+      <button style="width:100%" class="gold" data-act="welcome-mode" data-mode="signup">Create a player</button>
       <button class="ghost" style="width:100%;margin-top:10px" data-act="welcome-mode" data-mode="existing">I already have a passphrase</button>
     </div>
   </div>`;

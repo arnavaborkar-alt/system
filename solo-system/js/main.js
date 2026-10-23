@@ -411,7 +411,7 @@ const actions = {
   },
 
   async 'cal-generate'() {
-    if (!store.key) return notify('bad', 'System', 'Connect your hunter key under Sync & data first \u2014 the calendar feed needs cloud storage to look anything up from.');
+    if (!store.key) return notify('bad', 'System', 'Connect your player key under Sync & data first \u2014 the calendar feed needs cloud storage to look anything up from.');
     const bytes = crypto.getRandomValues(new Uint8Array(18));
     const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
     store.update((st) => { st.settings.calendarToken = token; });
@@ -1080,6 +1080,7 @@ async function bootContinue() {
 
 // Everything that must stay in step with the data runs here, once per change.
 store.beforeCommit = (st) => {
+  if (st.settings.hunterName === 'Hunter') st.settings.hunterName = 'Player';   // old default name
   E.migrateShop(st);
   C.sync(st);
   A.evaluate(st);

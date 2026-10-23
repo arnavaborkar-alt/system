@@ -73,9 +73,9 @@ async function sendWelcomeEmail(to, name) {
   await transporter.sendMail({
     from: `"System" <${user}>`,
     to,
-    subject: 'Welcome, Hunter',
-    text: `Hey ${name || 'Hunter'},\n\nYour account is ready. Open the app and sign in with the passphrase you just chose \u2014 there's no way to recover it if you lose it, so keep it somewhere safe.\n\nGood luck out there.`,
-    html: `<p>Hey ${name || 'Hunter'},</p><p>Your account is ready. Open the app and sign in with the passphrase you just chose \u2014 <strong>there's no way to recover it if you lose it</strong>, so keep it somewhere safe.</p><p>Good luck out there.</p>`,
+    subject: 'Welcome, Player',
+    text: `Hey ${name || 'Player'},\n\nYour account is ready. Open the app and sign in with the passphrase you just chose \u2014 there's no way to recover it if you lose it, so keep it somewhere safe.\n\nGood luck out there.`,
+    html: `<p>Hey ${name || 'Player'},</p><p>Your account is ready. Open the app and sign in with the passphrase you just chose \u2014 <strong>there's no way to recover it if you lose it</strong>, so keep it somewhere safe.</p><p>Good luck out there.</p>`,
   });
   return { sent: true };
 }
@@ -99,7 +99,7 @@ module.exports = async (req, res) => {
 
   const passphrase = String(body.passphrase || '');
   const email = String(body.email || '').trim();
-  const name = String(body.name || '').trim().slice(0, 24) || 'Hunter';
+  const name = String(body.name || '').trim().slice(0, 24) || 'Player';
 
   if (passphrase.length < 12) {
     return res.status(400).json({ error: 'Passphrase needs to be at least 12 characters.' });

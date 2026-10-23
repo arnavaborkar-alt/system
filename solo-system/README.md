@@ -245,7 +245,7 @@ and a vacation week costs about two months. Each item also has a cooldown so you
 can't chain them. Buying a day off books actual calendar dates — on those days
 nothing penalises you and your streaks survive.
 
-**Challenges.** The Hunter tab holds a daily, weekly and monthly set of three. Targets scale with
+**Challenges.** The Player tab holds a daily, weekly and monthly set of three. Targets scale with
 your level (and the Easy/Normal/Hard setting) and are fixed when the period starts; from level 20 up
 some ask for higher-rank quests, and at 100+ they ask for S-rank. Progress is read straight from your
 logs, so undoing something takes it back. Finished ones pay on Claim, or automatically when the
