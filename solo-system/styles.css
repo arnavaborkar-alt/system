@@ -895,3 +895,11 @@ body.font-mono .row .t { font-size: 14.5px; }
   .tabs { grid-auto-rows: 58px; }
   .tabs button .lbl { display: none; }
 }
+
+/* calendar: seven equal columns that can never be wider than the screen */
+.cal-dow, .cal-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal-cell { min-width: 0; aspect-ratio: auto; height: 48px; min-height: 0; box-sizing: border-box; }
+@media (min-width: 900px) { .cal-cell { height: 56px; } }
+body.corners-round .cal-cell, body.corners-square .cal-cell { aspect-ratio: auto; }
+
+.cal-cell.empty { padding: 0; }

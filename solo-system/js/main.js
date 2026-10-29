@@ -5,6 +5,7 @@ import { ui, render, notify, levelUpWindow, achievementBanner, dialog, tutorialO
 import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
+import * as R from './reminders.js';
 import { applyStoredLook } from './theme.js';
 import { buildPlan } from './planner.js';
 
@@ -867,6 +868,24 @@ const actions = {
     store.update((st) => { st.settings.look = { theme: 'system', accent: '#38BDF8', corners: 'cut', density: 'comfy', scale: 1, haze: true, grid: true, font: 'hunter' }; });
     ui.open = 'customize'; render();
   },
+  async 'rem-enable'() {
+    const prefs = { ...g().settings.reminders };
+    try {
+      await R.enable(prefs);
+      store.update((st) => { st.settings.reminders = { ...st.settings.reminders, enabled: true }; });
+      ui.remMsg = 'On for this device.'; notify('', 'Reminders', 'Turned on.');
+    } catch (e) { ui.remMsg = e.message; notify('bad', 'Reminders', e.message); }
+    ui.open = 'reminders'; render();
+  },
+  async 'rem-disable'() {
+    try { await R.disable(); } catch { /* ignore */ }
+    store.update((st) => { st.settings.reminders = { ...st.settings.reminders, enabled: false }; });
+    ui.remMsg = 'Off.'; ui.open = 'reminders'; render();
+  },
+  async 'rem-test'() {
+    try { await R.test(); notify('', 'Reminders', 'Test sent \u2014 check your notifications.'); }
+    catch (e) { notify('bad', 'Reminders', e.message); }
+  },
   'ach-filter'(el) { ui.achFilter = el.dataset.f; render(); },
 };
 
@@ -938,6 +957,11 @@ document.addEventListener('input', (ev) => {
 
 document.addEventListener('change', (ev) => {
   const t = ev.target;
+  if (t.dataset.rem !== undefined) {
+    store.update((st) => { st.settings.reminders = { ...st.settings.reminders, [t.dataset.rem]: Number(t.value) }; });
+    R.sync(g().settings.reminders);
+    ui.open = 'reminders'; render(); return;
+  }
   if (t.dataset.lookAccent !== undefined) {
     store.update((st) => { st.settings.look = { ...(st.settings.look || {}), theme: 'custom', accent: t.value }; });
     ui.open = 'customize'; render(); return;
@@ -1048,6 +1072,8 @@ async function bootContinue() {
   const climbed = events.filter((e) => e.type === 'levelup').pop();
   if (climbed) levelUpWindow(climbed.level);
 
+  R.sync(g().settings.reminders);   // keeps the server's time zone current (travel, daylight saving)
+  R.status().then((st) => { ui.remMsg = !st.ok ? st.why : st.denied ? 'Blocked in browser settings.' : g().settings.reminders?.enabled && st.subscribed ? 'On for this device.' : 'Off.'; if (ui.tab === 'settings') render(); });
   flushFeedback();
   const shown = events.filter((e) => e.type !== 'levelup');
   shown.slice(0, 4).forEach((e, i) => setTimeout(() => {

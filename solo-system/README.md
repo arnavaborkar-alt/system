@@ -251,7 +251,7 @@ some ask for higher-rank quests, and at 100+ they ask for S-rank. Progress is re
 logs, so undoing something takes it back. Finished ones pay on Claim, or automatically when the
 period ends. Reroll tokens (Shop) swap one for another.
 
-**Achievements and titles.** About 60 across quests, ranks, training, habits, perfect days, streaks,
+**Achievements and titles.** More than 180 across quests, ranks, training, habits, perfect days, streaks,
 levels, gold, shopping and challenges, in bronze / silver / gold / legend tiers that pay gold and XP.
 Some unlock a title you can wear under your name. Existing saves are credited silently on first load.
 
@@ -261,6 +261,26 @@ Some unlock a title you can wear under your name. Existing saves are credited si
 **Customize.** System → Customize: six colour themes plus your own accent colour, corner style, density, text size, font and background effects. On a wide screen the tabs become a side rail and pages use two or three columns.
 
 Everything above is a number in Settings. Change any of it.
+
+---
+
+## Reminders (optional)
+
+A phone or desktop notification when something is still open, even with the app closed:
+an evening nudge (only if something is left, and it warns when your streak is at risk) and an
+optional morning briefing. Turn it on under **System → Reminders**.
+
+One-time server setup:
+
+1. Make a key pair: `npx web-push generate-vapid-keys`
+2. In Vercel → Settings → Environment Variables add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+   `VAPID_EMAIL` (your email) and `CRON_SECRET` (any long random string). Redeploy.
+3. Something has to call the sender once an hour. The free way: create a job at
+   cron-job.org that opens `https://YOUR-SITE.vercel.app/api/remind?secret=YOUR_CRON_SECRET`
+   every hour. (Vercel's own cron only does hourly on a paid plan.)
+
+On iPhone, add the app to the Home Screen first (Share → Add to Home Screen), then turn reminders on
+from inside that app. Each device is subscribed separately.
 
 ---
 
@@ -286,6 +306,10 @@ api/todoist.js          Todoist task fetch + normalize
 api/signup.js           self-signup + welcome email
 api/widget.js           widget data
 api/calendar.js         read-only calendar feed of your quests
+api/push.js             stores each device's notification subscription
+api/remind.js           hourly job that sends the reminders
+lib/kv.js, lib/remind.js  shared helpers for the reminder endpoints
+js/reminders.js         client side of reminders
 lib/rank.js             quest scoring shared by the widget and calendar feed
 widget-scriptable.js    the iOS widget
 sw.js                   offline shell cache

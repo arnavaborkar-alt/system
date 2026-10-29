@@ -83,6 +83,9 @@ export const DEFAULT_SETTINGS = {
   // ---- Look (see theme.js for the options) ----
   look: { theme: 'system', accent: '#38BDF8', corners: 'cut', density: 'comfy', scale: 1, haze: true, grid: true, font: 'hunter' },
 
+  // ---- Reminders (push notifications; hours are local, -1 = off) ----
+  reminders: { enabled: false, morning: -1, evening: 19 },
+
   // ---- Challenges & feedback ----
   challengesEnabled: true,
   challengeScale: 1,        // 0.7 easy, 1 normal, 1.3 hard. Bigger targets pay more.

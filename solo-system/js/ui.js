@@ -6,6 +6,7 @@ import { THEMES, DEFAULT_LOOK, paletteFor, applyLook } from './theme.js';
 import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
+import * as R from './reminders.js';
 import { SHOP_CATS } from './config.js';
 import { GOALS, SKILLS, EQUIPMENT, FOCUS, AVOID, LIFTING, PISTOL, DEFAULT_PROFILE, cleanProfile, buildPlan } from './planner.js';
 
@@ -832,6 +833,7 @@ function settingsTab() {
   const s = g();
   const st = s.settings;
   const look = { ...DEFAULT_LOOK, ...(st.look || {}) };
+  const rem = { enabled: false, morning: -1, evening: 19, ...(st.reminders || {}) };
   const T = (label, path, type = 'text', extra = '') =>
     `<div class="field"><label>${label}</label><input class="${type === 'number' ? 'num-in' : ''}" type="${type}" data-set="${path}" value="${h(getPath(st, path))}" ${extra}></div>`;
 
@@ -922,6 +924,20 @@ function settingsTab() {
         <input value="${h(k)}" data-cw-name="${h(k)}"><input class="num-in w" type="number" data-cw-val="${h(k)}" value="${v}">
         <button class="sm danger" data-act="del-cw" data-k="${h(k)}">\u2715</button></div>`).join('')}
       <button class="sm" style="margin-top:8px" data-act="add-cw">+ Course</button>
+    </div></details>
+
+    <details class="acc" ${ui.open === 'reminders' ? 'open' : ''}><summary>Reminders</summary><div>
+      <div class="tiny muted" style="margin-bottom:12px">A notification on your phone or computer when something is still open, even with the app closed. It stays quiet if you have nothing left.</div>
+      <div id="rem-status" class="tiny" style="margin-bottom:12px;color:var(--gold)">${h(ui.remMsg || 'Checking\u2026')}</div>
+      <div class="field"><label>Evening nudge</label>
+        <select data-rem="evening">${[[-1, 'Off'], ...[16, 17, 18, 19, 20, 21, 22].map((x) => [x, `${((x + 11) % 12) + 1}:00 ${x < 12 ? 'AM' : 'PM'}`])].map(([v, l]) => `<option value="${v}" ${Number(rem.evening) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Morning briefing</label>
+        <select data-rem="morning">${[[-1, 'Off'], ...[6, 7, 8, 9, 10].map((x) => [x, `${x}:00 AM`])].map(([v, l]) => `<option value="${v}" ${Number(rem.morning) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="grid2">
+        <button class="${rem.enabled ? 'ghost' : 'primary'}" data-act="${rem.enabled ? 'rem-disable' : 'rem-enable'}">${rem.enabled ? 'Turn off' : 'Turn on'}</button>
+        <button class="ghost" data-act="rem-test" ${rem.enabled ? '' : 'disabled'}>Send a test</button>
+      </div>
+      <div class="tiny muted" style="margin-top:12px">On iPhone: open the app from the Home Screen first (Share \u2192 Add to Home Screen). Times are your local time.</div>
     </div></details>
 
     <details class="acc" ${ui.open === 'challenges' ? 'open' : ''}><summary>Challenges &amp; effects</summary><div>
@@ -1136,12 +1152,17 @@ export function welcomeScreen() {
    TUTORIAL — walks through setup, replayable any time from Settings
    ============================================================ */
 export const TUTORIAL_STEPS = [
-  { title: 'How this works', body: 'Quests pay gold when you clear them \u2014 harder work pays more. Gold buys things in the Shop, like a day off when you\u2019ve earned it. Training and habits pay too, and everything levels you up.' },
-  { title: 'Connect Schoology', body: 'System \u2192 Schoology \u2192 paste your Schoology iCal link \u2192 Sync now. Your assignments show up as quests automatically, ranked by difficulty.', goto: { tab: 'settings', open: 'schoology' } },
+  { title: 'How this works', body: 'Quests pay gold and XP when you clear them \u2014 harder work pays more. Training sessions and habits pay too. XP raises your level and rank; gold buys rewards in the Shop.' },
+  { title: 'Connect Schoology', body: 'System \u2192 Schoology \u2192 paste your Schoology iCal link \u2192 Sync now. Your assignments show up as quests automatically, ranked by difficulty. Tap a quest\u2019s rank badge to change it.', goto: { tab: 'settings', open: 'schoology' } },
   { title: 'Connect Todoist', body: 'System \u2192 Todoist \u2192 paste your personal API token \u2192 Sync now. Works alongside Schoology \u2014 one Sync button pulls both.', goto: { tab: 'settings', open: 'todoist' } },
   { title: 'Build your gym plan', body: 'Tap Find my plan on the Gym tab and answer a few questions. It builds a training cycle around your levels, schedule and equipment, and the cycle gets harder on its own as you clear sessions. Edit any exercise later in System \u2192 Gym plan.', goto: { tab: 'gym' } },
-  { title: 'Set up your habits', body: 'The Habits tab is for recurring things \u2014 chores, routines, anything on a schedule. Add one with System \u2192 Habits \u2192 + Habit.', goto: { tab: 'habits' } },
-  { title: 'Where everything lives', body: 'Quests: what\u2019s due. Month: a calendar view of all of it. Gym and Habits: your training and routines. Shop: spend your gold. System: every setting.' },
+  { title: 'Set up your habits', body: 'The Habits tab is for recurring things \u2014 chores, routines, anything on a schedule. Add one with System \u2192 Habits \u2192 + Habit. Keeping a habit going builds a streak bonus.', goto: { tab: 'habits' } },
+  { title: 'Daily, weekly and monthly challenges', body: 'The Player tab gives you three challenges for each period. Targets grow with your level, so they stay hard as you improve. Tap Claim when one is done (unclaimed ones pay out on their own when the period ends). A reroll token from the Shop swaps one you don\u2019t like.', goto: { tab: 'hunter' } },
+  { title: 'Achievements and titles', body: 'Scroll down on the Player tab for achievements \u2014 bronze to legend, each paying gold and XP. Some unlock a title you can wear under your name. Use the filters to see what you have and what\u2019s left.', goto: { tab: 'hunter' } },
+  { title: 'Perfect days and streaks', body: 'Clear everything scheduled for a day and you earn a perfect-day bonus. Clearing at least one quest every day builds a streak that adds a gold bonus. A streak shield from the Shop saves it once if you miss a day.' },
+  { title: 'The Shop', body: 'Treats, power-ups, time off and big rewards. Power-ups include 1.5\u00d7, 2\u00d7 and 3\u00d7 gold and XP boosts for a day, streak shields and challenge rerolls. Time off books real days where nothing counts against you. Edit any price or add your own rewards in System \u2192 Shop.', goto: { tab: 'shop' } },
+  { title: 'Make it yours', body: 'System \u2192 Customize has colour themes (or pick your own colour), corner style, text size, density and font. Visual effects and vibration can be switched off under Challenges & effects.', goto: { tab: 'settings', open: 'customize' } },
+  { title: 'Where everything lives', body: 'Quests: what\u2019s due. Month: a calendar of everything. Gym and Habits: training and routines. Player: your profile, challenges and achievements. Shop: spend your gold. System: every setting. You can replay this tutorial any time from System.' },
 ];
 
 export function tutorialOverlay() {
