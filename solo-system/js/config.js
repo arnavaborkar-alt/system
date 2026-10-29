@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS = {
   calendarToken: '',
   onboarded: true,   // the signup screen flips this to false right after creating a
                       // hunter, so the tutorial only auto-appears for someone who just joined
-  autoSyncHours: 6,
+  autoSyncHours: 3,
   ignoreBefore: '',   // sync skips anything due before this date (YYYY-MM-DD)
   ignoreKeywords: ['attendance', 'no school', 'holiday', 'spirit week', 'assembly'],
 

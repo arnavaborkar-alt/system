@@ -233,8 +233,29 @@ function settle(st) {
   return ev;
 }
 
+// Pull the cloud copy in and, when sources are connected and due, refresh Schoology/Todoist.
+async function cloudPull(quiet = true) {
+  const changed = await store.pull();
+  if (changed) { render(); if (!quiet) notify('', 'System', 'Synced from your other device.'); }
+  return changed;
+}
+function autoSyncSources(force = false) {
+  const s = g();
+  const every = (s.settings.autoSyncHours || 3);
+  const due = (t) => force || !t || (Date.now() - Date.parse(t)) / 3.6e6 >= every;
+  if (s.settings.icsUrl && due(s.lastSync)) syncSchoology(true);
+  if (s.settings.todoistToken && due(s.lastTodoistSync)) syncTodoist(true);
+}
+
 const actions = {
-  sync() {
+  async 'cloud-sync'() {
+    if (store.status === 'nocloud') { notify('', 'System', 'Cloud sync is not set up.'); return; }
+    const changed = await cloudPull(false);
+    if (!changed) notify('', 'System', store.status === 'offline' ? 'Offline. Changes are saved on this device.' : 'Already up to date.');
+    render();
+  },
+  async sync() {
+    await cloudPull(true);
     const s = g();
     if (!s.settings.icsUrl && !s.settings.todoistToken) {
       ui.tab = 'settings'; ui.open = 'schoology'; render();
@@ -1082,24 +1103,20 @@ async function bootContinue() {
     notify(kind, label, e.text);
   }, 400 + i * 600));
 
-  // auto-sync if it's been long enough
-  const s = g();
-  if (s.settings.icsUrl) {
-    const hrs = s.lastSync ? (Date.now() - Date.parse(s.lastSync)) / 3.6e6 : 999;
-    if (hrs >= (s.settings.autoSyncHours || 6)) syncSchoology(true);
-  }
-  if (s.settings.todoistToken) {
-    const hrs = s.lastTodoistSync ? (Date.now() - Date.parse(s.lastTodoistSync)) / 3.6e6 : 999;
-    if (hrs >= (s.settings.autoSyncHours || 6)) syncTodoist(true);
-  }
-
-  // re-check the date when the app comes back to the foreground
+  // auto-sync: sources at boot, then the cloud copy and sources again whenever the app wakes or on a timer
+  autoSyncSources();
   let lastDay = tk();
-  document.addEventListener('visibilitychange', () => {
+  let lastPull = Date.now();
+  const wake = async () => {
     if (document.hidden) return;
     if (tk() !== lastDay) { lastDay = tk(); store.update((st) => settle(st)); flushFeedback(); }
+    if (Date.now() - lastPull > 15000) { lastPull = Date.now(); await cloudPull(true); autoSyncSources(); }
     render();
-  });
+  };
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('focus', wake);
+  window.addEventListener('online', () => { lastPull = 0; wake(); });
+  setInterval(() => { if (!document.hidden) { lastPull = Date.now(); cloudPull(true); autoSyncSources(); } }, 60000);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }

@@ -1,3 +1,4 @@
+import { mergeStates } from './merge.js';
 import {
   DEFAULT_SETTINGS, DEFAULT_PLANS, DEFAULT_SHOP, DEFAULT_HABITS, LADDERS, STATS, SHOP_VERSION,
 } from './config.js';
@@ -138,9 +139,11 @@ class Store {
       const body = await r.json();
       if (body.state) {
         const remote = hydrate(body.state);
-        const localAt = this.state.updatedAt ? Date.parse(this.state.updatedAt) : 0;
-        const remoteAt = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
-        if (remoteAt >= localAt) this.state = remote;
+        // Never trust timestamps alone: a device that was left alone for months can carry a
+        // newer "last edited" stamp than the cloud and wipe real progress. Merge on progress.
+        const mergedState = mergeStates(this.state, remote);
+        this.lastRemoteStamp = remote.updatedAt;
+        this.state = mergedState;
       }
       this.cloud = true;
       this.status = 'cloud';
@@ -164,15 +167,27 @@ class Store {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(this.state));
     if (!this.key) return;
     clearTimeout(this.saveTimer);
-    const push = async () => {
+    const push = async (retry = true) => {
       try {
+        const force = this.forceNext; this.forceNext = false;
         const r = await fetch('/api/state', {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-hunter-key': this.key },
-          body: JSON.stringify({ state: this.state }),
+          body: JSON.stringify({ state: this.state, force }),
         });
+        if (r.status === 409 && retry) {
+          // the cloud has more progress than this device: fold it in, then try again
+          const body = await r.json().catch(() => ({}));
+          if (body.state) {
+            this.state = mergeStates(this.state, hydrate(body.state));
+            this.status = 'cloud'; this.emit();
+            localStorage.setItem(LOCAL_KEY, JSON.stringify(this.state));
+            this.changedRemotely = true;
+            return push(false);
+          }
+        }
         this.status = r.ok ? 'cloud' : (r.status === 501 ? 'nocloud' : 'offline');
-
+        if (r.ok) this.lastRemoteStamp = this.state.updatedAt;
       } catch { this.status = 'offline'; }
       this.emit();
     };
@@ -181,18 +196,48 @@ class Store {
     return Promise.resolve();
   }
 
+  /** Fetch the cloud copy and fold it in. Returns true if what you are looking at changed. */
+  async pull() {
+    if (!this.key || !this.cloud || this.pulling) return false;
+    this.pulling = true;
+    try {
+      const r = await fetch('/api/state', { headers: { 'x-hunter-key': this.key } });
+      if (!r.ok) { if (r.status !== 401) this.status = 'offline'; this.emit(); return false; }
+      const body = await r.json();
+      this.status = 'cloud';
+      if (!body.state) return false;
+      const remote = hydrate(body.state);
+      if (remote.updatedAt === this.lastRemoteStamp) return false;   // nothing new since we last looked
+      this.lastRemoteStamp = remote.updatedAt;
+      const before = JSON.stringify(this.state);
+      const merged = mergeStates(this.state, remote);
+      const changed = JSON.stringify(merged) !== before;
+      if (changed) {
+        this.state = merged;
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(this.state));
+        // if this device had something the cloud lacked, send the combined result back
+        if (JSON.stringify(merged) !== JSON.stringify(remote)) this.save({ immediate: true });
+      }
+      this.emit();
+      return changed;
+    } catch { this.status = 'offline'; this.emit(); return false; }
+    finally { this.pulling = false; }
+  }
+
   export() { return JSON.stringify(this.state, null, 2); }
 
   import(json) {
     const parsed = JSON.parse(json);
     this.state = hydrate(parsed);
     this.state.updatedAt = new Date().toISOString();
+    this.forceNext = true;     // an import is deliberate, so the server must accept it even if it is "behind"
     this.emit();
     this.save({ immediate: true });
   }
 
   reset() {
     this.state = freshState();
+    this.forceNext = true;
     this.emit();
     this.save({ immediate: true });
   }

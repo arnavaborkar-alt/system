@@ -92,6 +92,10 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
+      if (req.query && req.query.backup) {
+        const bak = await kvGet(`${slot}:bak`);
+        return res.status(200).json(bak ? { state: bak.state, savedAt: bak.savedAt } : { state: null });
+      }
       let state = await kvGet(slot);
       // one-time rescue of a save written before slots existed
       if (!state && process.env.HUNTER_KEY && pass === process.env.HUNTER_KEY) {
@@ -103,6 +107,23 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const body = await readBody(req);
       if (!body || !body.state) return res.status(400).json({ error: 'No state in request.' });
+
+      // Refuse to overwrite the cloud with a copy that has LESS progress. Lifetime gold earned only
+      // ever grows, so a lower number means a stale device (one left alone for months, say). The
+      // client folds the cloud copy into its own and retries. `force` is for imports and resets.
+      const existing = await kvGet(slot);
+      if (existing && !body.force) {
+        const have = Number(existing.lifetimeEarned) || 0;
+        const sent = Number(body.state.lifetimeEarned) || 0;
+        if (sent + 1 < have) return res.status(409).json({ error: 'This copy is behind the cloud.', state: existing });
+      }
+      // keep a daily snapshot of the previous cloud copy as a safety net (GET /api/state?backup=1)
+      try {
+        if (existing) {
+          const bak = await kvGet(`${slot}:bak`);
+          if (!bak || Date.now() - Date.parse(bak.savedAt || 0) > 20 * 3600e3) await kvSet(`${slot}:bak`, { savedAt: new Date().toISOString(), state: existing });
+        }
+      } catch { /* the save itself matters more */ }
       await kvSet(slot, body.state);
 
       // Index the calendar-feed token so /api/calendar can find this save from the

@@ -185,7 +185,7 @@ function statusBar() {
     <div class="xpbar"><i style="width:${Math.max(0, Math.min(100, p.pct)).toFixed(1)}%"></i></div>
     <div class="xp-meta">
       <span class="num">${p.cur.toLocaleString()} / ${p.need.toLocaleString()} XP</span>
-      <span class="sync"><i class="${store.status}"></i>${h(label)}${off ? ' \u00b7 DAY OFF' : ''}</span>
+      <span class="sync" data-act="cloud-sync" role="button" title="Tap to sync" style="cursor:pointer"><i class="${store.status}"></i>${h(label)}${off ? ' \u00b7 DAY OFF' : ''}</span>
     </div>
   </div>`;
 }
