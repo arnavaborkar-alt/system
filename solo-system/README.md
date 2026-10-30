@@ -268,6 +268,15 @@ Everything above is a number in Settings. Change any of it.
 
 Devices never overwrite each other by timestamp. When this device and the cloud differ, the save with more lifetime gold earned wins as the base and anything the other copy did (finished quests, habit days, purchases) is added on top. The server also refuses a save that has less progress than the cloud (it answers 409 and the app merges and retries), and keeps a daily snapshot you can read at `/api/state?backup=1` (with your passphrase header). The app pulls the cloud copy when it opens, comes back to the foreground, regains connection, and every minute while open. Schoology/Todoist refresh on the same triggers when older than the auto-sync hours (default 3). Tap the status dot in the header to sync now.
 
+## Extras
+
+- **Weekly boss:** a new boss every Monday, scaled to your level. Quests (bigger rank hits harder), habits, training and perfect days damage it; undoing something heals it. Beat it for gold, XP and a stat bump; a beaten boss you forget pays out on its own.
+- **Week in review and Stats:** on the Player tab, compared with the week before.
+- **Focus timer:** a 15 to 60 minute block on the Quests tab, capped at 120 paid minutes a day.
+- **Smart schedule:** spreads open quests over the days before they are due, using rank as effort. Daily limit is in System.
+- **Leaderboard:** opt in on the Player tab. Shares only your player name, level and weekly XP with others on the same site.
+- **Restore snapshot:** System > Cloud. The server keeps one snapshot a day.
+
 ## Reminders (optional)
 
 A phone or desktop notification when something is still open, even with the app closed:
@@ -315,6 +324,11 @@ api/remind.js           hourly job that sends the reminders
 lib/kv.js, lib/remind.js  shared helpers for the reminder endpoints
 js/reminders.js         client side of reminders
 js/merge.js             combines two saves without losing progress (cross-device sync)
+js/boss.js              weekly boss gate
+js/insights.js          weekly review and stats (derived from your logs)
+js/focus.js             focus timer
+js/schedule.js          smart schedule (spreads work before due dates)
+api/board.js            opt-in friends leaderboard
 lib/rank.js             quest scoring shared by the widget and calendar feed
 widget-scriptable.js    the iOS widget
 sw.js                   offline shell cache

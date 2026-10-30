@@ -45,6 +45,8 @@ export function freshState() {
     cycleHistory: [],
     xpLog: {},           // 'YYYY-MM-DD' -> XP earned that day
     gymProfile: null,    // answers from the Find-my-plan form
+    boss: null,          // this week's boss gate
+    focusLog: {},        // 'YYYY-MM-DD' -> focus minutes paid
     challenges: {},      // { daily|weekly|monthly: { key, items: [...] } }
     counters: {},        // lifetime high-water marks used by achievements
     achievements: {},    // id -> ISO time unlocked
@@ -143,6 +145,7 @@ class Store {
         // newer "last edited" stamp than the cloud and wipe real progress. Merge on progress.
         const mergedState = mergeStates(this.state, remote);
         this.lastRemoteStamp = remote.updatedAt;
+        this.noteRescue(this.state, mergedState);
         this.state = mergedState;
       }
       this.cloud = true;
@@ -179,7 +182,9 @@ class Store {
           // the cloud has more progress than this device: fold it in, then try again
           const body = await r.json().catch(() => ({}));
           if (body.state) {
-            this.state = mergeStates(this.state, hydrate(body.state));
+            const rescued = mergeStates(this.state, hydrate(body.state));
+            this.noteRescue(this.state, rescued);
+            this.state = rescued;
             this.status = 'cloud'; this.emit();
             localStorage.setItem(LOCAL_KEY, JSON.stringify(this.state));
             this.changedRemotely = true;
@@ -194,6 +199,12 @@ class Store {
     if (immediate) return push();
     this.saveTimer = setTimeout(push, 1200);
     return Promise.resolve();
+  }
+
+  /** Tells the app when a merge brought in real progress this device didn't have. */
+  noteRescue(before, after) {
+    if (!this.onRescue || !before || !after) return;
+    if ((after.xp || 0) - (before.xp || 0) > 1 && (after.lifetimeEarned || 0) - (before.lifetimeEarned || 0) > 1) this.onRescue(before, after);
   }
 
   /** Fetch the cloud copy and fold it in. Returns true if what you are looking at changed. */
@@ -213,6 +224,7 @@ class Store {
       const merged = mergeStates(this.state, remote);
       const changed = JSON.stringify(merged) !== before;
       if (changed) {
+        this.noteRescue(this.state, merged);
         this.state = merged;
         localStorage.setItem(LOCAL_KEY, JSON.stringify(this.state));
         // if this device had something the cloud lacked, send the combined result back
@@ -222,6 +234,17 @@ class Store {
       return changed;
     } catch { this.status = 'offline'; this.emit(); return false; }
     finally { this.pulling = false; }
+  }
+
+  /** The daily server snapshot, or null. Used by Settings > Restore. */
+  async snapshot() {
+    if (!this.key) return null;
+    try {
+      const r = await fetch('/api/state?backup=1', { headers: { 'x-hunter-key': this.key } });
+      if (!r.ok) return null;
+      const b = await r.json();
+      return b.state ? { state: hydrate(b.state), savedAt: b.savedAt || null } : null;
+    } catch { return null; }
   }
 
   export() { return JSON.stringify(this.state, null, 2); }

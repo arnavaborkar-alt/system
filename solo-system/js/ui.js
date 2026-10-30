@@ -7,6 +7,10 @@ import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
 import * as R from './reminders.js';
+import * as B from './boss.js';
+import * as I from './insights.js';
+import * as F from './focus.js';
+import * as SC from './schedule.js';
 import { SHOP_CATS } from './config.js';
 import { GOALS, SKILLS, EQUIPMENT, FOCUS, AVOID, LIFTING, PISTOL, DEFAULT_PROFILE, cleanProfile, buildPlan } from './planner.js';
 
@@ -307,6 +311,175 @@ function challengeTeaser() {
 }
 
 /* ============================================================
+   BOSS, REVIEW, STATS, BOARD, FOCUS, SCHEDULE
+   ============================================================ */
+const fmt = (n) => Number(n || 0).toLocaleString();
+const dayLabel = (k) => new Date(`${k}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+
+function bossBlock(compact = false) {
+  const s = g();
+  if (s.settings.bossEnabled === false || !s.boss) return '';
+  const b = s.boss;
+  const d = B.damage(s, b);
+  const pct = Math.min(100, (d.total / b.maxHp) * 100);
+  const beaten = d.total >= b.maxHp;
+  const left = Math.max(0, Math.ceil((Date.parse(`${addDays(b.key, 7)}T00:00:00`) + (s.settings.dayResetHour ?? 4) * 3600000 - Date.now()) / 864e5));
+  const act = b.claimed ? '<span class="pill on">defeated</span>'
+    : beaten ? (compact ? '<span class="pill on">ready</span>' : '<button class="primary sm" data-act="claim-boss">Claim</button>') : '';
+  const head = `<div class="window-title"><h2>${compact ? 'Boss gate' : 'Weekly boss'}</h2><span class="count">${b.claimed ? 'claimed' : beaten ? 'defeated' : `${left}d left`}</span></div>`;
+  return `<div class="window boss t${b.tier} ${beaten ? 'beaten' : ''}" ${compact ? 'data-tab="hunter" role="button" tabindex="0"' : ''}>
+    ${head}
+    <div class="boss-row"><div class="boss-ico">${icon('sword', 22)}</div>
+      <div class="boss-body"><div class="boss-name">${h(b.name)}</div>
+        <div class="hp"><i style="width:${(100 - pct).toFixed(1)}%"></i></div>
+        <div class="ch-s"><span class="num">${fmt(Math.max(0, b.maxHp - d.total))} / ${fmt(b.maxHp)} HP</span><span class="num rw">+${fmt(b.rewardGold)}g · +${fmt(b.rewardXp)} XP</span></div></div>
+      <div class="ch-act">${act}</div></div>
+    ${compact ? '' : `<div class="tiny muted" style="margin-top:8px">Quests ${d.quests} · habits ${d.habits} · training ${d.sessions} · perfect days ${d.perfect}. Bigger quests hit harder. A new boss arrives every Monday and a beaten one pays out by itself.</div>`}
+  </div>`;
+}
+
+function delta(a, b, unit = '') {
+  const d = a - b;
+  if (!b && !a) return '';
+  if (d === 0) return '<span class="dl flat">same</span>';
+  return `<span class="dl ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${fmt(Math.abs(d))}${unit}</span>`;
+}
+
+function reviewBlock() {
+  const s = g();
+  const off = ui.reviewOff || 0;
+  const { cur, prev, start } = I.weekReview(s, off);
+  const tile = (label, v, p, unit = '') => `<div class="tile"><b class="num">${fmt(v)}${unit}</b><span>${label}</span>${delta(v, p, unit)}</div>`;
+  const quiet = !cur.quests && !cur.habits && !cur.sessions;
+  return `<div class="window" id="review">
+    <div class="window-title"><h2>Week in review</h2><span class="count">${h(dayLabel(start))} – ${h(dayLabel(cur.b))}</span></div>
+    <div class="chips" style="margin-bottom:12px">
+      <button class="chip ${off === 0 ? 'on' : ''}" data-act="review-week" data-o="0">This week</button>
+      <button class="chip ${off === -1 ? 'on' : ''}" data-act="review-week" data-o="-1">Last week</button>
+      <button class="chip ${off === -2 ? 'on' : ''}" data-act="review-week" data-o="-2">2 weeks ago</button>
+    </div>
+    <div class="tiles">
+      ${tile('quests', cur.quests, prev.quests)}${tile('habits', cur.habits, prev.habits)}
+      ${tile('sessions', cur.sessions, prev.sessions)}${tile('perfect days', cur.perfect, prev.perfect)}
+      ${tile('XP', cur.xp, prev.xp)}${tile('gold earned', cur.gold, prev.gold)}
+    </div>
+    <div class="tiny" style="margin-top:12px;color:var(--ink)">${h(I.verdict(cur, prev))}</div>
+    ${quiet ? '' : `<div class="tiny muted" style="margin-top:6px">${cur.best ? `Biggest clear: ${h(cur.best.title)} (${cur.best.rank}). ` : ''}${cur.bestDay ? `Best day: ${h(dayLabel(cur.bestDay.key))}, ${fmt(cur.bestDay.xp)} XP. ` : ''}${cur.early ? `${cur.early} finished early. ` : ''}Spent ${fmt(cur.spent)}g.</div>`}
+    <div class="tiny muted" style="margin-top:6px">Arrows compare with the week before.</div>
+  </div>`;
+}
+
+function barChart(vals, labels, { color = 'var(--mana)', h: H = 90, fmtv = fmt } = {}) {
+  const max = Math.max(1, ...vals.map((v) => v ?? 0));
+  const w = 100 / vals.length;
+  const bars = vals.map((v, i) => {
+    if (v == null) return '';
+    const bh = Math.max(v ? 2 : 0, (v / max) * (H - 4));
+    return `<rect x="${(i * w + w * 0.14).toFixed(2)}" y="${(H - bh).toFixed(1)}" width="${(w * 0.72).toFixed(2)}" height="${bh.toFixed(1)}" rx="1.2" fill="${color}"><title>${h(labels[i])}: ${h(fmtv(v))}</title></rect>`;
+  }).join('');
+  return `<svg class="chart" viewBox="0 0 100 ${H}" preserveAspectRatio="none" role="img">${bars}</svg>`;
+}
+
+function statsBlock() {
+  const s = g();
+  const n = ui.statDays || 14;
+  const ser = I.series(s, n);
+  const wd = I.byWeekday(s, 90);
+  const wmax = Math.max(1, ...wd);
+  const tot = ser.reduce((a, d) => ({ xp: a.xp + d.xp, q: a.q + d.quests, gold: a.gold + (d.goldKnown ? d.gold : 0), spent: a.spent + (d.goldKnown ? d.spent : 0) }), { xp: 0, q: 0, gold: 0, spent: 0 });
+  const ends = `<div class="axis"><span>${h(dayLabel(ser[0].k))}</span><span>today</span></div>`;
+  const goldKnown = ser.some((d) => d.goldKnown);
+  return `<div class="window">
+    <div class="window-title"><h2>Stats</h2><span class="count">last ${n} days</span></div>
+    <div class="chips" style="margin-bottom:12px">${[14, 30, 90].map((d) => `<button class="chip ${n === d ? 'on' : ''}" data-act="stat-days" data-d="${d}">${d} days</button>`).join('')}</div>
+    <div class="cap">XP per day <b class="num">${fmt(tot.xp)}</b></div>
+    ${barChart(ser.map((d) => d.xp), ser.map((d) => dayLabel(d.k)))}${ends}
+    <div class="cap" style="margin-top:14px">Quests cleared per day <b class="num">${fmt(tot.q)}</b></div>
+    ${barChart(ser.map((d) => d.quests), ser.map((d) => dayLabel(d.k)), { color: 'var(--ok)', h: 60 })}
+    ${goldKnown ? `<div class="cap" style="margin-top:14px">Gold earned <b class="num" style="color:var(--gold)">${fmt(tot.gold)}</b> <span class="muted">· spent</span> <b class="num">${fmt(tot.spent)}</b></div>
+      ${barChart(ser.map((d) => (d.goldKnown ? d.gold : null)), ser.map((d) => dayLabel(d.k)), { color: 'var(--gold)', h: 60 })}
+      ${ser.some((d) => !d.goldKnown) ? '<div class="tiny muted" style="margin-top:4px">Gold history only goes back as far as your last 400 transactions.</div>' : ''}` : ''}
+    <div class="cap" style="margin-top:14px">Quests by weekday <span class="muted">(90 days)</span></div>
+    <div class="wd">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) => `<div><i style="height:${Math.round((wd[i] / wmax) * 100)}%"></i><b class="num">${wd[i]}</b><span>${l}</span></div>`).join('')}</div>
+  </div>`;
+}
+
+function boardBlock() {
+  const s = g();
+  const on = !!s.settings.board?.enabled;
+  const b = ui.board || {};
+  const rows = b.rows || [];
+  const sort = ui.boardSort || 'level';
+  const list = [...rows].sort((x, y) => (sort === 'week' ? y.weekXp - x.weekXp : (y.level - x.level) || (y.xp - x.xp)));
+  return `<div class="window">
+    <div class="window-title"><h2>Leaderboard</h2><span class="count">${on ? `${rows.length} playing` : 'off'}</span></div>
+    ${on ? `<div class="chips" style="margin-bottom:10px">
+        <button class="chip ${sort === 'level' ? 'on' : ''}" data-act="board-sort" data-s="level">Level</button>
+        <button class="chip ${sort === 'week' ? 'on' : ''}" data-act="board-sort" data-s="week">XP this week</button>
+        <button class="chip" data-act="board-refresh">${b.loading ? 'Loading…' : 'Refresh'}</button></div>
+      ${list.length ? list.map((r, i) => `<div class="lb ${r.me ? 'me' : ''}"><b class="num">${i + 1}</b><span class="lb-n">${h(r.name)}</span><span class="tiny muted">${h(E.hunterTitle(r.level).title)}</span><span class="num">Lv ${r.level}</span><span class="num muted">${fmt(r.weekXp)} wk</span></div>`).join('')
+        : `<div class="tiny muted">${b.err ? h(b.err) : b.loading ? 'Loading…' : 'Nobody yet.'}</div>`}
+      <div class="tiny muted" style="margin-top:10px">Shows your name, level and weekly XP to anyone on this site. Nothing else.</div>
+      <button class="ghost sm" style="margin-top:8px" data-act="board-toggle" data-on="0">Leave the board</button>`
+    : `<div class="tiny muted" style="margin-bottom:10px">See friends on the same site. Joining shares only your player name, level and weekly XP with them.</div>
+      <button class="sm" data-act="board-toggle" data-on="1">Join the board</button>`}
+  </div>`;
+}
+
+function reviewBanner() {
+  const s = g();
+  const wk = I.mondayOf(tk());
+  const dow = new Date(`${tk()}T12:00:00`).getDay();
+  if (!(dow === 0 || dow === 1) || lsGet('solo-review-seen') === wk) return '';
+  const off = dow === 1 ? -1 : 0;
+  return `<div class="window flat teaser" data-act="open-review" data-o="${off}" role="button" tabindex="0">
+    <div class="window-title" style="margin:0;padding:0;border:0"><h2>${dow === 1 ? 'Last week' : 'This week'} in review</h2><span class="count">tap to view</span></div></div>`;
+}
+
+function focusCard() {
+  const s = g();
+  const t = F.running();
+  if (t) {
+    const done = F.isFinished(t);
+    const r = F.rewardFor(s, t.mins);
+    return `<div class="window focus ${done ? 'done' : ''}">
+      <div class="window-title"><h2>Focus</h2><span class="count">${t.mins} min${t.label ? ` · ${h(t.label)}` : ''}</span></div>
+      <div class="focus-time num" id="focus-time">${done ? 'Done' : fmtClock(F.remainingMs(t))}</div>
+      <div class="ch-bar"><i id="focus-bar" style="width:${Math.min(100, ((Date.now() - t.start) / (t.mins * 60000)) * 100).toFixed(1)}%"></i></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        ${done ? `<button class="primary" style="flex:1" data-act="focus-collect">Collect ${r.gold ? `+${r.gold}g` : ''}</button>` : '<button class="ghost" style="flex:1" data-act="focus-cancel">Give up</button>'}
+      </div>
+      ${done && !r.paid ? `<div class="tiny muted" style="margin-top:8px">Today's ${F.DAILY_CAP_MIN} paid minutes are used up. It still counts toward Focus awards.</div>` : ''}
+    </div>`;
+  }
+  const used = s.focusLog?.[tk()] || 0;
+  return `<div class="window flat teaser" data-act="focus-open" role="button" tabindex="0">
+    <div class="window-title" style="margin:0;padding:0;border:0"><h2>Focus timer</h2><span class="count">${used ? `${used} min today` : 'start a block'}</span></div></div>`;
+}
+export const fmtClock = (ms) => { const t = Math.ceil(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
+function scheduleBlock() {
+  const s = g();
+  const p = SC.plan(s, 7);
+  if (!p.days.some((d) => d.load) && !p.overflow.length) return '';
+  const open = !!ui.schedOpen;
+  const head = `<div class="window-title"><h2>Smart schedule</h2><span class="count">${p.today.length ? `${p.today.reduce((n, x) => n + 1, 0)} to work on today` : 'nothing needed today'}</span></div>`;
+  return `<div class="window">
+    ${head}
+    ${p.overflow.length ? `<div class="tiny" style="color:var(--danger);margin-bottom:8px">Too much for the time left: ${p.overflow.slice(0, 3).map((o) => h(o.title)).join(', ')}${p.overflow.length > 3 ? '…' : ''}. Start these now.</div>` : ''}
+    ${p.today.length ? p.today.map((x) => `<div class="sch-row"><span class="rank ${rankClass(x.rank)}" style="pointer-events:none">${x.rank}</span><span class="sch-t">${h(x.title)}</span><span class="tiny muted">${x.final ? 'due today' : `due ${h(dayLabel(x.due))}`}</span></div>`).join('') : '<div class="tiny muted">Today is clear. Light days are a good time to get ahead.</div>'}
+    <div class="sch-days">${p.days.map((d, i) => {
+      const pct = Math.min(100, (d.load / p.cap) * 100);
+      return `<div class="sd ${d.load > p.cap ? 'over' : ''} ${d.off ? 'off' : ''}" title="${h(dayLabel(d.k))}: ${d.load}/${p.cap}"><i style="height:${d.off ? 0 : pct}%"></i><span>${i === 0 ? 'Now' : DOW[new Date(`${d.k}T12:00:00`).getDay()]}</span></div>`;
+    }).join('')}</div>
+    <button class="ghost sm" style="margin-top:10px" data-act="sched-toggle">${open ? 'Hide plan' : 'Show full plan'}</button>
+    ${open ? p.days.filter((d) => d.items.length).map((d) => `<div class="sch-day"><div class="tiny muted" style="margin:10px 0 4px">${h(dayLabel(d.k))} · ${d.load}/${p.cap}</div>${d.items.map((x) => `<div class="sch-row"><span class="rank ${rankClass(x.rank)}" style="pointer-events:none">${x.rank}</span><span class="sch-t">${h(x.title)}</span><span class="tiny muted">${x.final ? 'finish' : 'work'}</span></div>`).join('')}</div>`).join('') : ''}
+    <div class="tiny muted" style="margin-top:8px">Works backward from each due date using quest rank as effort, so nothing lands all at once. Change the daily limit in System.</div>
+  </div>`;
+}
+
+/* ============================================================
    HUNTER TAB — profile, titles, challenges, achievements
    ============================================================ */
 function achCard(a) {
@@ -367,9 +540,14 @@ function hunterTab() {
       ${owned.length ? '' : '<div class="tiny muted" style="margin-top:10px">Titles come from achievements. Earn one and it shows up here.</div>'}
     </div>
 
+    ${bossBlock()}
+    ${reviewBlock()}
     ${s.settings.challengesEnabled ? `<h2 class="sect">Challenges</h2>
       ${C.PERIODS.map(challengeBlock).join('')}
       <div class="tiny muted" style="margin:-4px 2px 16px">Targets scale with your level and are fixed when the period starts. Finished ones pay out on their own if you forget to claim.${(s.rerolls || 0) ? '' : ' Rerolls are in the shop.'}</div>` : ''}
+
+    ${statsBlock()}
+    ${boardBlock()}
 
     <h2 class="sect">Achievements <span class="num">${got}/${total}</span></h2>
     <div class="chips scroll" style="margin-bottom:12px">${filters.map((f) => `<button class="chip ${ui.achFilter === f ? 'on' : ''}" data-act="ach-filter" data-f="${h(f)}">${h(f)}</button>`).join('')}</div>
@@ -436,7 +614,10 @@ function questsTab() {
 
   return `<div class="wrap">
     ${ui.selecting ? '' : todayCard()}
+    ${ui.selecting ? '' : reviewBanner()}
     ${ui.selecting ? '' : challengeTeaser()}
+    ${ui.selecting ? '' : bossBlock(true)}
+    ${ui.selecting ? '' : focusCard()}
     ${ui.selecting ? `<div class="selbar">
         <button class="sm ghost" data-act="sel-all">${ui.selected?.size === open.length && open.length ? 'None' : 'All'}</button>
         <span class="num">${ui.selected?.size || 0} selected</span>
@@ -460,6 +641,7 @@ function questsTab() {
     </div>` : ''}
     ${s.lastSync ? `<div class="tiny muted" style="margin:-8px 0 12px;font-family:var(--m)">Last sync ${new Date(s.lastSync).toLocaleString()}</div>` : ''}
     ${body}
+    ${ui.selecting ? '' : scheduleBlock()}
     ${missed.length ? `<div class="window"><div class="window-title"><h2>Failed</h2><span class="count">${missed.length}</span></div>
       ${missed.map((q) => `<div class="row missed"><div class="body tappable" data-act="open-quest" data-id="${h(q.id)}"><div class="t">${h(q.title)}</div><div class="s">${h(q.course || '')}</div></div>
       <button class="sm ghost" data-act="revive" data-id="${h(q.id)}">Restore</button></div>`).join('')}</div>` : ''}
@@ -947,6 +1129,10 @@ function settingsTab() {
       <div class="field"><label>Challenge difficulty</label>
         <div class="seg">${[['0.7', 'Easy'], ['1', 'Normal'], ['1.3', 'Hard']].map(([v, l]) => `<button class="${String(st.challengeScale) === v ? 'on' : ''}" data-set-val="challengeScale" data-v="${v}">${l}</button>`).join('')}</div>
         <div class="tiny muted" style="margin-top:5px">Applies to challenges created from now on. Harder ones pay a bit more.</div></div>
+      <div class="field"><label>Weekly boss</label>
+        <div class="seg"><button class="${st.bossEnabled !== false ? 'on' : ''}" data-set-val="bossEnabled" data-v="true">On</button>
+        <button class="${st.bossEnabled === false ? 'on' : ''}" data-set-val="bossEnabled" data-v="false">Off</button></div></div>
+      ${T('Smart schedule: work points per day', 'dayCapacity', 'number', 'min="3" max="30"')}
       <div class="field"><label>Visual effects</label>
         <div class="seg"><button class="${st.fxEnabled ? 'on' : ''}" data-set-val="fxEnabled" data-v="true">On</button>
         <button class="${!st.fxEnabled ? 'on' : ''}" data-set-val="fxEnabled" data-v="false">Off</button></div></div>
@@ -1011,6 +1197,8 @@ function settingsTab() {
         <button class="ghost" data-act="export">Export backup</button>
         <button class="ghost" data-act="import">Import backup</button>
       </div>
+      <button class="ghost" style="width:100%;margin-top:10px" data-act="restore-snapshot">Restore yesterday\u2019s cloud snapshot</button>
+      <div class="tiny muted" style="margin-top:6px">The server keeps one snapshot a day, taken just before a save. Use it if something ever looks wrong.</div>
       <button class="danger" style="width:100%;margin-top:10px" data-act="wipe">Erase everything</button>
     </div></details>
 

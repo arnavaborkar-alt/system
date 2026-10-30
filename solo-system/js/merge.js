@@ -53,6 +53,12 @@ export function mergeStates(a, b) {
     }
   }
   out.xpLog = maxMap(out.xpLog, other.xpLog);
+  out.focusLog = maxMap(out.focusLog, other.focusLog);
+  // weekly boss: the later week wins; within a week a claimed boss stays claimed
+  if (other.boss && (!out.boss || other.boss.key > out.boss.key)) out.boss = structuredClone(other.boss);
+  else if (other.boss && out.boss && other.boss.key === out.boss.key && other.boss.claimed) out.boss.claimed = true;
+  out.focusLog = maxMap(out.focusLog, other.focusLog);
+  if (out.boss && other.boss && out.boss.key === other.boss.key && other.boss.claimed) out.boss.claimed = true;
   out.penaltiesApplied = unionObj(out.penaltiesApplied, other.penaltiesApplied);
 
   // lists of events

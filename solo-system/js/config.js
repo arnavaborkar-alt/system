@@ -22,6 +22,9 @@ export const DEFAULT_SETTINGS = {
   onboarded: true,   // the signup screen flips this to false right after creating a
                       // hunter, so the tutorial only auto-appears for someone who just joined
   autoSyncHours: 3,
+  bossEnabled: true,       // a weekly boss gate
+  dayCapacity: 8,          // points of work the smart schedule puts on one day
+  board: { enabled: false },   // show your level on the friends board
   ignoreBefore: '',   // sync skips anything due before this date (YYYY-MM-DD)
   ignoreKeywords: ['attendance', 'no school', 'holiday', 'spirit week', 'assembly'],
 

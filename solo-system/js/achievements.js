@@ -7,7 +7,7 @@
 import { RANKS } from './config.js';
 import * as E from './engine.js';
 
-export const ACH_VERSION = 2;   // bump when new achievements are added; old progress is credited silently
+export const ACH_VERSION = 3;   // bump when new achievements are added; old progress is credited silently
 export const queue = [];   // feedback events for the UI to flush
 
 export const TIERS = {
@@ -77,6 +77,11 @@ const GROUPS = [
   ['challenges', 'Challenger', 'trophy', 'challenges completed', [
     [1, 'Challenge Accepted', 'bronze'], [5, 'Taking Names', 'bronze'], [10, 'Contender', 'silver', 'Contender'], [25, 'Challenge Seeker', 'silver'], [50, 'Champion', 'gold', 'Champion'],
     [100, 'Gauntlet Runner', 'gold'], [150, 'Undefeated', 'legend', 'Undefeated'], [300, 'Legend of the Board', 'legend']]],
+  ['bosses', 'Bosses', 'sword', 'weekly bosses defeated', [
+    [1, 'Boss Down', 'bronze'], [3, 'Triple Threat', 'bronze'], [6, 'Boss Hunter', 'silver', 'Boss Hunter'], [12, 'Gate Keeper', 'gold', 'Gate Keeper'],
+    [26, 'Half-Year Slayer', 'gold'], [52, 'Dungeon Master', 'legend', 'Dungeon Master']]],
+  ['focusMins', 'Focus', 'clock', 'focus minutes', [
+    [25, 'First Focus', 'bronze'], [250, 'Deep Work', 'silver'], [1000, 'Flow State', 'gold', 'Deep Worker'], [5000, 'Monk Mode', 'legend', 'Monk']]],
   ['STR', 'Strength', 'dumbbell', 'Strength', [[25, 'Stronger', 'bronze'], [100, 'Heavy Lifter', 'silver'], [250, 'Powerhouse', 'gold'], [500, 'Titan', 'legend', 'Titan']]],
   ['VIT', 'Vitality', 'heart', 'Vitality', [[25, 'Healthy', 'bronze'], [100, 'Resilient', 'silver'], [250, 'Ironclad Body', 'gold'], [500, 'Immortal', 'legend', 'Immortal']]],
   ['AGI', 'Agility', 'bolt', 'Agility', [[25, 'Quick', 'bronze'], [100, 'Nimble', 'silver'], [250, 'Blur', 'gold'], [500, 'Phantom', 'legend', 'Phantom']]],
@@ -131,7 +136,8 @@ function derive(state) {
   const habitStreak = Math.max(0, ...Object.values(state.habitStreaks || {}).map(Number).filter(Number.isFinite));
   const days = state.createdAt ? Math.max(0, Math.floor((Date.now() - Date.parse(state.createdAt)) / 864e5)) : 0;
   const stats = {}; ['STR', 'VIT', 'AGI', 'INT', 'PER'].forEach((k) => { stats[k] = state.stats?.[k] || 0; });
-  return { quests, S, A, B, early, morning, night, weekend, sessions, habits, habitStreak, days, ...stats,
+  const focusMins = Object.values(state.focusLog || {}).reduce((n, v) => n + (Number(v) || 0), 0);
+  return { focusMins, quests, S, A, B, early, morning, night, weekend, sessions, habits, habitStreak, days, ...stats,
     cycles: Math.max(0, (state.cycle?.index || 1) - 1), xp: Math.round(state.xp || 0), spent: Math.round(state.lifetimeSpent || 0),
     boosts, daysOff: (state.daysOff || []).length,
     bestStreak: state.questStreak || 0, level: state.level || 1,

@@ -146,9 +146,31 @@ function build(d, size) {
     });
   }
 
+  // ---- boss gate bar (medium and large) ----
+  if (size !== 'small' && d.boss) {
+    w.addSpacer(6);
+    const bl = w.addStack();
+    bl.centerAlignContent();
+    label(bl, `\u2694 ${d.boss.name}`.toUpperCase(), 8.5, FAINT, true).lineLimit = 1;
+    bl.addSpacer();
+    label(bl, `${d.boss.dmg}/${d.boss.hp}`, 8.5, d.boss.dmg >= d.boss.hp ? GOLD : MUTED, true);
+    w.addSpacer(2);
+    const bar = w.addStack();
+    bar.size = new Size(0, 3);
+    bar.backgroundColor = new Color('#1B2C55');
+    bar.cornerRadius = 2;
+    const fill = bar.addStack();
+    fill.size = new Size(Math.max(2, 120 * Math.min(1, d.boss.dmg / d.boss.hp)), 3);
+    fill.backgroundColor = d.boss.dmg >= d.boss.hp ? GOLD : MANA;
+    fill.cornerRadius = 2;
+    bar.addSpacer();
+  }
+
   w.addSpacer();
   const foot = w.addStack();
-  label(foot, d.quests.dueTomorrow ? `${d.quests.dueTomorrow} due tomorrow` : 'nothing due tomorrow', 9, FAINT);
+  const nxt = d.next && !d.quests.dueTomorrow ? `next: ${d.next.title}` : null;
+  const ft = label(foot, d.quests.dueTomorrow ? `${d.quests.dueTomorrow} due tomorrow` : (nxt || 'nothing due tomorrow'), 9, FAINT);
+  ft.lineLimit = 1;
   foot.addSpacer();
   label(foot, new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }), 9, FAINT);
 

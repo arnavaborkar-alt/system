@@ -87,7 +87,13 @@ module.exports = async (req, res) => {
       boostEnds = d.toISOString();
     }
 
+    const boss = st.boss && !st.boss.claimed ? { name: st.boss.name, hp: st.boss.maxHp, dmg: Math.min(st.boss.maxHp, st.boss.dmg || 0) } : null;
+    const upcoming = open.filter((x) => dk(x) && dk(x) > today).sort((a, b) => (dk(a) < dk(b) ? -1 : 1))[0];
+
     return res.status(200).json({
+      boss,
+      next: upcoming ? { title: upcoming.title, course: upcoming.course, due: dk(upcoming) } : null,
+      focusToday: Math.round(st.focusLog?.[today] || 0),
       hunter: s.hunterName || 'Hunter',
       boost: boost ? { mult: boost.mult || 2, endsAt: boostEnds } : null,
       gold: Math.round(st.gold || 0),

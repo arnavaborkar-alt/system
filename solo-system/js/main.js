@@ -1,11 +1,14 @@
-import { store, todayKey, addDays, dateKey } from './store.js';
+import { store, todayKey, addDays, dateKey, dueDay } from './store.js';
 import { RANKS } from './config.js';
 import * as E from './engine.js';
-import { ui, render, notify, levelUpWindow, achievementBanner, dialog, tutorialOverlay, openPlanner, closePlanner, renderPlanner } from './ui.js';
+import { ui, render, notify, fmtClock, levelUpWindow, achievementBanner, dialog, tutorialOverlay, openPlanner, closePlanner, renderPlanner } from './ui.js';
 import * as C from './challenges.js';
 import * as A from './achievements.js';
 import * as FX from './fx.js';
 import * as R from './reminders.js';
+import * as B from './boss.js';
+import * as I from './insights.js';
+import * as F from './focus.js';
 import { applyStoredLook } from './theme.js';
 import { buildPlan } from './planner.js';
 
@@ -496,6 +499,80 @@ const actions = {
     render();
   },
 
+
+  /* ----- boss, review, stats, schedule ----- */
+  'claim-boss'(el) {
+    const at = FX.anchor(el);
+    let got = null; let lvl = null;
+    store.update((st) => { got = B.claim(st); });
+    if (got) {
+      rewardFx(at, got.gold, got.xp, 'S');
+      FX.coinShower(18);
+      notify('gold', `${got.name} defeated`, `+${got.gold}g, +${got.xp} XP`);
+    }
+    flushFeedback(); render();
+  },
+  'review-week'(el) { ui.reviewOff = Number(el.dataset.o) || 0; render(); },
+  'open-review'(el) {
+    try { localStorage.setItem('solo-review-seen', I.mondayOf(tk())); } catch { /* ignore */ }
+    ui.reviewOff = Number(el.dataset.o) || 0; ui.tab = 'hunter'; render();
+    setTimeout(() => document.getElementById('review')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  },
+  'stat-days'(el) { ui.statDays = Number(el.dataset.d) || 14; render(); },
+  'sched-toggle'() { ui.schedOpen = !ui.schedOpen; render(); },
+
+  /* ----- focus timer ----- */
+  async 'focus-open'() {
+    const quests = Object.values(g().quests).filter((q) => !q.done && !q.missed && !q.dismissed).sort((a, b) => (dueDay(a) || 'z') < (dueDay(b) || 'z') ? -1 : 1).slice(0, 12);
+    const v = await dialog({
+      title: 'Focus block', message: 'Start a timer, put the phone down, collect when it ends.', confirm: 'Start',
+      fields: [
+        { name: 'mins', label: 'Length', options: F.OPTIONS.map((m) => ({ value: String(m), label: `${m} minutes` })), value: '25' },
+        { name: 'label', label: 'Working on', options: [{ value: '', label: 'Anything' }, ...quests.map((q) => ({ value: q.title, label: q.title.slice(0, 40) }))], value: '' },
+      ],
+    });
+    if (!v) return;
+    F.start(Number(v.mins) || 25, v.label || '');
+    render();
+  },
+  'focus-cancel'() { F.cancel(); render(); },
+  'focus-collect'(el) {
+    const at = FX.anchor(el);
+    let got = null;
+    store.update((st) => { got = F.collect(st); });
+    if (got) {
+      rewardFx(at, got.gold, got.xp, 'C');
+      notify('gold', 'Focus complete', got.paid ? `+${got.gold}g, +${got.xp} XP` : `${got.mins} min logged`);
+      if (got.level) levelUpWindow(got.level);
+    }
+    flushFeedback(); render();
+  },
+
+  /* ----- friends board ----- */
+  async 'board-toggle'(el) {
+    const on = el.dataset.on === '1';
+    store.update((st) => { st.settings.board = { ...(st.settings.board || {}), enabled: on }; });
+    if (on) await boardPush(); else await boardPost({ on: false });
+    ui.board = on ? ui.board : { rows: [] };
+    render();
+    if (on) boardRefresh();
+  },
+  'board-sort'(el) { ui.boardSort = el.dataset.s; render(); },
+  'board-refresh'() { boardRefresh(); },
+
+  /* ----- restore the daily cloud snapshot ----- */
+  async 'restore-snapshot'() {
+    const snap = await store.snapshot();
+    if (!snap) { notify('bad', 'Restore', 'No snapshot found yet. One is saved each day you use the app.'); return; }
+    const lv = E.levelProgress(snap.state.xp || 0).level;
+    const when = snap.savedAt ? new Date(snap.savedAt).toLocaleString() : 'unknown time';
+    const v = await dialog({ title: 'Restore snapshot', message: `Replace everything on this device and the cloud with the snapshot from ${when} (level ${lv})? Current progress will be lost.`, confirm: 'Restore', danger: true });
+    if (!v) return;
+    store.import(JSON.stringify(snap.state));
+    notify('', 'Restore', `Back to level ${lv}.`);
+    render();
+  },
+
   'restore-quest'(el) {
     store.update((st) => {
       const q = st.quests[el.dataset.id];
@@ -919,6 +996,43 @@ function rewardFx(at, gold, xp, rank) {
   FX.burst(at.x, at.y, { color: hot ? 'var(--gold)' : 'var(--glow)', count: hot ? 22 : 12, big: hot });
 }
 
+
+/* ---------- friends board ---------- */
+async function boardPost(body) {
+  try {
+    const r = await fetch('/api/board', { method: 'POST', headers: { 'content-type': 'application/json', 'x-hunter-key': store.key }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { ui.board = { ...(ui.board || {}), err: j.error || `Error ${r.status}`, loading: false }; return null; }
+    return j;
+  } catch { ui.board = { ...(ui.board || {}), err: 'Offline.', loading: false }; return null; }
+}
+async function boardPush() {
+  const s = g();
+  if (!store.key || !s.settings.board?.enabled) return null;
+  const wk = I.mondayOf(tk());
+  const weekXp = I.summarize(s, wk, addDays(wk, 6)).xp;
+  return boardPost({ on: true, name: s.settings.hunterName || 'Player', level: s.level, xp: Math.round(s.xp || 0), weekXp });
+}
+async function boardRefresh() {
+  if (!store.key) { ui.board = { rows: [], err: 'Add your player key in System first.' }; render(); return; }
+  ui.board = { ...(ui.board || {}), loading: true, err: '' }; render();
+  const j = await boardPush();
+  ui.board = { rows: j?.rows || [], loading: false, err: j ? '' : (ui.board?.err || 'Could not load.') };
+  render();
+}
+
+/* ---------- focus timer ticker ---------- */
+setInterval(() => {
+  const t = F.running();
+  if (!t) return;
+  const el = document.getElementById('focus-time');
+  if (!el) return;
+  if (F.isFinished(t)) { render(); notify('gold', 'Focus', 'Block finished. Collect your reward.'); FX.haptic('good'); return; }
+  el.textContent = fmtClock(F.remainingMs(t));
+  const bar = document.getElementById('focus-bar');
+  if (bar) bar.style.width = `${Math.min(100, ((Date.now() - t.start) / (t.mins * 60000)) * 100).toFixed(1)}%`;
+}, 1000);
+
 /** Shows whatever the achievement and challenge engines queued during the last update. */
 function flushFeedback() {
   let climbed = null;
@@ -928,9 +1042,11 @@ function flushFeedback() {
     else if (ev.type === 'levelup') climbed = ev.level;
     else if (ev.type === 'backfill') setTimeout(() => notify('', 'Achievements', `${ev.n} unlocked from your history.`), delay);
     else if (ev.type === 'auto') setTimeout(() => notify('gold', 'Challenges', ev.text), delay);
+    else if (ev.type === 'focus') setTimeout(() => notify('gold', 'Focus', ev.text), delay);
   };
   while (A.queue.length) handle(A.queue.shift());
   while (C.queue.length) handle(C.queue.shift());
+  while (B.queue.length) handle(B.queue.shift());
   if (climbed) setTimeout(() => levelUpWindow(climbed), 350);
 }
 
@@ -1116,7 +1232,9 @@ async function bootContinue() {
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('focus', wake);
   window.addEventListener('online', () => { lastPull = 0; wake(); });
-  setInterval(() => { if (!document.hidden) { lastPull = Date.now(); cloudPull(true); autoSyncSources(); } }, 60000);
+  let ticks = 0;
+  setInterval(() => { if (!document.hidden) { lastPull = Date.now(); cloudPull(true); autoSyncSources(); if (++ticks % 10 === 0) boardPush(); } }, 60000);
+  boardPush();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
@@ -1126,7 +1244,14 @@ store.beforeCommit = (st) => {
   if (st.settings.hunterName === 'Hunter') st.settings.hunterName = 'Player';   // old default name
   E.migrateShop(st);
   C.sync(st);
+  B.sync(st);
+  if (st.boss) st.boss.dmg = B.damage(st).total;   // cached so the widget can show it
   A.evaluate(st);
+};
+store.onMerge = (a, b) => {
+  const lv = (x) => E.levelProgress(x.xp || 0).level;
+  if (lv(b) > lv(a)) setTimeout(() => notify('gold', 'Progress restored', `Level ${lv(a)} \u2192 ${lv(b)}. Your newer progress was kept.`), 600);
+  else if ((b.lifetimeEarned || 0) > (a.lifetimeEarned || 0) + 1) setTimeout(() => notify('', 'Synced', 'Picked up changes from your other device.'), 600);
 };
 const applyFx = () => FX.configure({ enabled: () => g().settings.fxEnabled !== false, haptics: () => g().settings.haptics !== false });
 applyFx();
