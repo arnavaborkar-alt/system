@@ -581,8 +581,15 @@ const actions = {
     render();
   },
 
+  'show-more'(el) { ui.more = ui.more || {}; ui.more[el.dataset.k] = !ui.more[el.dataset.k]; render(); },
+  'revive-all'() {
+    let n = 0;
+    store.update((st) => { Object.values(st.quests).forEach((q) => { if (q.missed && !q.dismissed && !q.done) { q.missed = false; q.fined = true; n++; } }); });
+    notify('', 'System', `${n} quest${n === 1 ? '' : 's'} back in Overdue.`);
+    render();
+  },
   revive(el) {
-    store.update((st) => { const q = st.quests[el.dataset.id]; if (q) { q.missed = false; q.done = false; } });
+    store.update((st) => { const q = st.quests[el.dataset.id]; if (q) { q.missed = false; q.done = false; q.fined = true; } });
     render();
   },
 

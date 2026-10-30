@@ -595,13 +595,20 @@ function questsTab() {
     </div>`;
   };
 
-  const section = (title, list, note = '') => list.length
-    ? `<div class="window"><div class="window-title"><h2>${title}</h2>${note ? `<span class="eyebrow">${note}</span>` : ''}<span class="count">${list.length}</span></div>${list.map(row).join('')}</div>`
-    : '';
+  // long lists show the first few and expand on demand, so the page never turns into a mile of rows
+  const section = (title, list, note = '', cap = 15) => {
+    if (!list.length) return '';
+    const open = ui.more?.[title] || ui.selecting;
+    const shown = open ? list : list.slice(0, cap);
+    const rest = list.length - shown.length;
+    return `<div class="window"><div class="window-title"><h2>${title}</h2>${note ? `<span class="eyebrow">${note}</span>` : ''}<span class="count">${list.length}</span></div>${shown.map(row).join('')}
+      ${rest > 0 ? `<button class="ghost sm" style="width:100%;margin-top:8px" data-act="show-more" data-k="${title}">Show ${rest} more</button>`
+        : (open && list.length > cap && !ui.selecting ? `<button class="ghost sm" style="width:100%;margin-top:8px" data-act="show-more" data-k="${title}">Show less</button>` : '')}</div>`;
+  };
 
   const cleared = all.filter((q) => q.done && !q.dismissed);
   const done = [...cleared].sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 12);
-  const missed = all.filter((q) => q.missed && !q.dismissed).slice(0, 8);
+  const missed = all.filter((q) => q.missed && !q.dismissed);
   const dismissed = all.filter((q) => q.dismissed);
 
   const body = (buckets.overdue.length + buckets.today.length + buckets.soon.length + buckets.later.length) === 0
@@ -640,10 +647,12 @@ function questsTab() {
       <button class="sm gold" data-act="purge-old">Clear them out</button>
     </div>` : ''}
     ${s.lastSync ? `<div class="tiny muted" style="margin:-8px 0 12px;font-family:var(--m)">Last sync ${new Date(s.lastSync).toLocaleString()}</div>` : ''}
+    ${missed.length && !ui.selecting ? `<div class="window" style="padding:13px 16px"><div class="tiny" style="color:var(--danger);margin-bottom:9px">${missed.length} quest${missed.length === 1 ? ' was' : 's were'} marked failed while you were away.</div><button class="sm gold" data-act="revive-all">Bring them back as overdue</button></div>` : ''}
     ${body}
     ${ui.selecting ? '' : scheduleBlock()}
     ${missed.length ? `<div class="window"><div class="window-title"><h2>Failed</h2><span class="count">${missed.length}</span></div>
-      ${missed.map((q) => `<div class="row missed"><div class="body tappable" data-act="open-quest" data-id="${h(q.id)}"><div class="t">${h(q.title)}</div><div class="s">${h(q.course || '')}</div></div>
+      <button class="sm gold" style="width:100%;margin-bottom:8px" data-act="revive-all">Bring all ${missed.length} back as overdue</button>
+      ${missed.slice(0, 10).map((q) => `<div class="row missed"><div class="body tappable" data-act="open-quest" data-id="${h(q.id)}"><div class="t">${h(q.title)}</div><div class="s">${h(q.course || '')}</div></div>
       <button class="sm ghost" data-act="revive" data-id="${h(q.id)}">Restore</button></div>`).join('')}</div>` : ''}
     ${done.length ? `<details class="acc"><summary>Cleared (${cleared.length})</summary><div>
       ${done.map((q) => `<div class="row done"><div class="body tappable" data-act="open-quest" data-id="${h(q.id)}"><div class="t">${h(q.title)}</div>

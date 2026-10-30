@@ -449,8 +449,10 @@ export function rollover(state) {
         // quests that were due that day and never cleared
         Object.values(state.quests).forEach((q) => {
           if (q.done || q.missed || q.dismissed) return;
-          if (dueDay(q) !== cursor) return;
-          q.missed = true;
+          if (dueDay(q) !== cursor || q.fined) return;
+          // Stays open as "overdue" so it can still be finished late (just paying less).
+          // The penalty is charged once.
+          q.fined = true;
           if (s.missedQuestPenalty) {
             pay(state, -s.missedQuestPenalty, `Missed quest: ${q.title}`);
             events.push({ type: 'penalty', text: `${q.title} — −${s.missedQuestPenalty}g` });
